@@ -954,6 +954,17 @@ body {
     overflow: hidden;
 }
 
+/* Ripple effect element */
+.ripple-effect {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.6);
+    width: 100px;
+    height: 100px;
+    animation: ripple 0.6s;
+    pointer-events: none;
+}
+
 /* Form Success Modal */
 .form-success-modal {
     position: fixed;
