@@ -18,9 +18,10 @@ public/
 ├── index.html      # Main HTML file
 ├── styles.css      # All styling and responsive design
 ├── script.js       # Interactive functionality
-└── assets/         # Images and media (to be added)
-    └── images/
+└── README.md       # This file
 ```
+
+**Note:** Add an `assets/images/` directory when you have images to include.
 
 ## Sections
 
@@ -55,7 +56,21 @@ Edit CSS variables in `styles.css`:
 All content can be edited directly in `index.html`
 
 ### Images
-Add your images to `public/assets/images/` and update the placeholders
+Replace the placeholder divs in the HTML with actual images:
+
+1. **Gallery images**: Replace `.gallery-placeholder` divs with `<img>` tags
+   - Recommended size: 800x600px (4:3 aspect ratio)
+   - Format: WebP for best performance, with JPEG fallback
+   - Example: `<img src="assets/images/gallery-1.webp" alt="Car detailing work" loading="lazy">`
+
+2. **About section image**: Replace `.image-placeholder` with actual image
+   - Recommended size: 600x800px (portrait)
+   - Should showcase your mobile detailing service
+
+3. **Optimize all images** before uploading:
+   - Compress images to reduce file size
+   - Use responsive images with `srcset` for different screen sizes
+   - Always include descriptive `alt` text for accessibility
 
 ## Browser Support
 
@@ -94,4 +109,4 @@ Then visit `http://localhost:8000`
 
 ## License
 
-All rights reserved - MMJ Detailing 2024
+All rights reserved - MMJ Detailing 2024-present

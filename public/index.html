@@ -26,11 +26,11 @@
                 <li><a href="#contact" class="nav-link">Contact</a></li>
                 <li><a href="#contact" class="btn-nav">Book Now</a></li>
             </ul>
-            <div class="hamburger" id="hamburger">
+            <button class="hamburger" id="hamburger" aria-label="Toggle navigation menu" aria-expanded="false">
                 <span></span>
                 <span></span>
                 <span></span>
-            </div>
+            </button>
         </div>
     </nav>
 
@@ -249,7 +249,10 @@
                         <div class="info-icon">📱</div>
                         <div>
                             <h4>Phone</h4>
-                            <p>(508) 555-0123</p>
+                            <p>
+                                <a href="tel:+15085550123">(508) 555-0123</a>
+                                <br><small style="color: var(--text-light); font-size: 0.85em;">Note: Update with actual phone number before deployment</small>
+                            </p>
                         </div>
                     </div>
                     <div class="info-item">
@@ -263,16 +266,20 @@
                 <div class="contact-form-wrapper">
                     <form class="contact-form" id="contactForm">
                         <div class="form-group">
-                            <input type="text" id="name" name="name" placeholder="Your Name" required>
+                            <label for="name" class="visually-hidden">Your Name</label>
+                            <input type="text" id="name" name="name" placeholder="Your Name" required aria-label="Your Name">
                         </div>
                         <div class="form-group">
-                            <input type="email" id="email" name="email" placeholder="Your Email" required>
+                            <label for="email" class="visually-hidden">Your Email</label>
+                            <input type="email" id="email" name="email" placeholder="Your Email" required aria-label="Your Email">
                         </div>
                         <div class="form-group">
-                            <input type="tel" id="phone" name="phone" placeholder="Your Phone">
+                            <label for="phone" class="visually-hidden">Your Phone</label>
+                            <input type="tel" id="phone" name="phone" placeholder="Your Phone" aria-label="Your Phone (optional)">
                         </div>
                         <div class="form-group">
-                            <select id="service" name="service" required>
+                            <label for="service" class="visually-hidden">Select a Service</label>
+                            <select id="service" name="service" required aria-label="Select a Service">
                                 <option value="">Select a Service</option>
                                 <option value="express">Express Detail</option>
                                 <option value="premium">Premium Detail</option>
@@ -281,7 +288,8 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <textarea id="message" name="message" rows="5" placeholder="Tell us about your vehicle and any specific needs..." required></textarea>
+                            <label for="message" class="visually-hidden">Message</label>
+                            <textarea id="message" name="message" rows="5" placeholder="Tell us about your vehicle and any specific needs..." required aria-label="Tell us about your vehicle and any specific needs"></textarea>
                         </div>
                         <button type="submit" class="btn btn-primary btn-block">Request A Quote</button>
                     </form>
@@ -319,14 +327,17 @@
                 <div class="footer-section">
                     <h4>Connect</h4>
                     <div class="social-links">
-                        <a href="#" class="social-link">Facebook</a>
-                        <a href="#" class="social-link">Instagram</a>
-                        <a href="#" class="social-link">Twitter</a>
+                        <a href="#" class="social-link" aria-label="Facebook (link to be added)">Facebook</a>
+                        <a href="#" class="social-link" aria-label="Instagram (link to be added)">Instagram</a>
+                        <a href="#" class="social-link" aria-label="Twitter (link to be added)">Twitter</a>
                     </div>
+                    <p style="font-size: 0.85rem; color: var(--text-light); margin-top: 0.5rem;">
+                        <em>Social media links to be updated</em>
+                    </p>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2024 MMJ Detailing. All rights reserved. | Carver, Massachusetts</p>
+                <p>&copy; <span id="copyright-year"></span> MMJ Detailing. All rights reserved. | Carver, Massachusetts</p>
             </div>
         </div>
     </footer>

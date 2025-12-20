@@ -4,30 +4,36 @@
 const hamburger = document.getElementById('hamburger');
 const navMenu = document.getElementById('navMenu');
 
-hamburger.addEventListener('click', () => {
-    navMenu.classList.toggle('active');
+if (hamburger && navMenu) {
+    hamburger.addEventListener('click', () => {
+        const isActive = navMenu.classList.toggle('active');
+        
+        // Update aria-expanded attribute
+        hamburger.setAttribute('aria-expanded', isActive);
 
-    // Animate hamburger
-    const spans = hamburger.querySelectorAll('span');
-    spans[0].style.transform = navMenu.classList.contains('active')
-        ? 'rotate(45deg) translate(7px, 7px)'
-        : 'none';
-    spans[1].style.opacity = navMenu.classList.contains('active') ? '0' : '1';
-    spans[2].style.transform = navMenu.classList.contains('active')
-        ? 'rotate(-45deg) translate(7px, -7px)'
-        : 'none';
-});
-
-// Close menu when clicking on a link
-document.querySelectorAll('.nav-link').forEach(link => {
-    link.addEventListener('click', () => {
-        navMenu.classList.remove('active');
+        // Animate hamburger
         const spans = hamburger.querySelectorAll('span');
-        spans[0].style.transform = 'none';
-        spans[1].style.opacity = '1';
-        spans[2].style.transform = 'none';
+        spans[0].style.transform = isActive
+            ? 'rotate(45deg) translate(7px, 7px)'
+            : 'none';
+        spans[1].style.opacity = isActive ? '0' : '1';
+        spans[2].style.transform = isActive
+            ? 'rotate(-45deg) translate(7px, -7px)'
+            : 'none';
     });
-});
+
+    // Close menu when clicking on a link
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.addEventListener('click', () => {
+            navMenu.classList.remove('active');
+            hamburger.setAttribute('aria-expanded', 'false');
+            const spans = hamburger.querySelectorAll('span');
+            spans[0].style.transform = 'none';
+            spans[1].style.opacity = '1';
+            spans[2].style.transform = 'none';
+        });
+    });
+}
 
 // ==========================================
 // Smooth Scrolling
@@ -54,83 +60,128 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
 // ==========================================
 const navbar = document.getElementById('navbar');
 
-window.addEventListener('scroll', () => {
-    if (window.scrollY > 50) {
-        navbar.classList.add('scrolled');
-    } else {
-        navbar.classList.remove('scrolled');
-    }
-});
+if (navbar) {
+    window.addEventListener('scroll', () => {
+        if (window.scrollY > 50) {
+            navbar.classList.add('scrolled');
+        } else {
+            navbar.classList.remove('scrolled');
+        }
+    });
+}
 
 // ==========================================
 // Contact Form Handling
 // ==========================================
 const contactForm = document.getElementById('contactForm');
 
-contactForm.addEventListener('submit', (e) => {
-    e.preventDefault();
+if (contactForm) {
+    // Email validation function
+    function isValidEmail(email) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
 
-    // Get form data
-    const formData = {
-        name: document.getElementById('name').value,
-        email: document.getElementById('email').value,
-        phone: document.getElementById('phone').value,
-        service: document.getElementById('service').value,
-        message: document.getElementById('message').value
-    };
+    contactForm.addEventListener('submit', (e) => {
+        e.preventDefault();
 
-    // Here you would typically send the data to a server
-    // For now, we'll just show a success message
+        const emailInput = document.getElementById('email');
+        const emailValue = emailInput.value.trim();
 
-    // Create success message
-    const successMessage = document.createElement('div');
-    successMessage.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-        color: white;
-        padding: 2rem 3rem;
-        border-radius: 15px;
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
-        z-index: 10000;
-        text-align: center;
-        animation: fadeIn 0.3s ease;
-    `;
-
-    successMessage.innerHTML = `
-        <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Thank You!</h3>
-        <p style="margin-bottom: 1.5rem;">We've received your request and will get back to you within 24 hours.</p>
-        <button onclick="this.parentElement.remove()" style="
-            background: white;
-            color: #1e40af;
-            border: none;
-            padding: 0.75rem 2rem;
-            border-radius: 25px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
-            Close
-        </button>
-    `;
-
-    document.body.appendChild(successMessage);
-
-    // Reset form
-    contactForm.reset();
-
-    // Auto remove message after 5 seconds
-    setTimeout(() => {
-        if (successMessage.parentElement) {
-            successMessage.remove();
+        // Validate email format
+        if (!isValidEmail(emailValue)) {
+            if (typeof emailInput.setCustomValidity === 'function') {
+                emailInput.setCustomValidity('Please enter a valid email address.');
+                emailInput.reportValidity();
+            }
+            emailInput.focus();
+            return;
+        } else if (typeof emailInput.setCustomValidity === 'function') {
+            emailInput.setCustomValidity('');
         }
-    }, 5000);
 
-    // Log form data (in production, you'd send this to a server)
-    console.log('Form submitted:', formData);
-});
+        // Get form data
+        const formData = {
+            name: document.getElementById('name').value,
+            email: emailValue,
+            phone: document.getElementById('phone').value,
+            service: document.getElementById('service').value,
+            message: document.getElementById('message').value
+        };
+
+        // NOTE: This form is for demonstration purposes only
+        // No data is actually sent to a server
+        // In production, integrate with a backend service or email API
+
+        // Create success message
+        const successMessage = document.createElement('div');
+        successMessage.className = 'form-success-modal';
+        successMessage.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            color: white;
+            padding: 2rem 3rem;
+            border-radius: 15px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            text-align: center;
+            animation: fadeIn 0.3s ease;
+            max-width: 90%;
+        `;
+
+        successMessage.innerHTML = `
+            <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Form Submitted!</h3>
+            <p style="margin-bottom: 1rem;">Your information has been received.</p>
+            <p style="margin-bottom: 1.5rem; font-size: 0.9rem; opacity: 0.9;">
+                <strong>Note:</strong> This is a demo form. No data is sent to a server.<br>
+                In production, integrate with a backend service.
+            </p>
+            <button class="close-modal-btn" style="
+                background: white;
+                color: #1e40af;
+                border: none;
+                padding: 0.75rem 2rem;
+                border-radius: 25px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            ">
+                Close
+            </button>
+        `;
+
+        document.body.appendChild(successMessage);
+
+        // Add event listener to close button
+        const closeBtn = successMessage.querySelector('.close-modal-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                successMessage.remove();
+            });
+            closeBtn.addEventListener('mouseenter', () => {
+                closeBtn.style.transform = 'scale(1.05)';
+            });
+            closeBtn.addEventListener('mouseleave', () => {
+                closeBtn.style.transform = 'scale(1)';
+            });
+        }
+
+        // Reset form
+        contactForm.reset();
+
+        // Auto remove message after 5 seconds
+        setTimeout(() => {
+            if (successMessage.parentElement) {
+                successMessage.remove();
+            }
+        }, 5000);
+
+        // Log form data for development purposes
+        console.log('Form submitted:', formData);
+    });
+}
 
 // ==========================================
 // Intersection Observer for Fade-in Animations
@@ -167,10 +218,9 @@ document.addEventListener('DOMContentLoaded', () => {
 // Dynamic Year in Footer
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
-    const footerText = document.querySelector('.footer-bottom p');
-    if (footerText) {
-        const currentYear = new Date().getFullYear();
-        footerText.innerHTML = footerText.innerHTML.replace('2024', currentYear);
+    const yearElement = document.getElementById('copyright-year');
+    if (yearElement) {
+        yearElement.textContent = new Date().getFullYear();
     }
 });
 
@@ -187,43 +237,34 @@ document.querySelectorAll('.service-card').forEach(card => {
 // Add-on Items Interactive Behavior
 // ==========================================
 document.querySelectorAll('.addon-item').forEach(item => {
-    item.addEventListener('click', function() {
-        // Create a ripple effect
+    item.addEventListener('click', function(e) {
+        // Create a ripple effect at click position
         const ripple = document.createElement('div');
+        const rect = this.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        ripple.className = 'ripple-effect';
         ripple.style.cssText = `
             position: absolute;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.6);
             width: 100px;
             height: 100px;
-            margin-top: -50px;
+            left: ${x}px;
+            top: ${y}px;
             margin-left: -50px;
+            margin-top: -50px;
             animation: ripple 0.6s;
             pointer-events: none;
         `;
 
-        this.style.position = 'relative';
+        this.style.position = this.style.position || 'relative';
         this.appendChild(ripple);
 
         setTimeout(() => ripple.remove(), 600);
     });
 });
-
-// Add ripple animation to CSS dynamically
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes ripple {
-        from {
-            opacity: 1;
-            transform: scale(0);
-        }
-        to {
-            opacity: 0;
-            transform: scale(2);
-        }
-    }
-`;
-document.head.appendChild(style);
 
 // ==========================================
 // Gallery Item Click Handler
