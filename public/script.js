@@ -141,9 +141,11 @@ contactForm.addEventListener('submit', (e) => {
 
     // Add click event listener to the button
     const closeButton = successMessage.querySelector('.success-message-close-btn');
-    closeButton.addEventListener('click', () => {
-        successMessage.remove();
-    });
+    if (closeButton) {
+        closeButton.addEventListener('click', () => {
+            successMessage.remove();
+        });
+    }
 
     document.body.appendChild(successMessage);
 
