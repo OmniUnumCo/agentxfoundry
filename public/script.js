@@ -198,15 +198,23 @@ document.querySelectorAll('.service-card').forEach(card => {
 // Add-on Items Interactive Behavior
 // ==========================================
 document.querySelectorAll('.addon-item').forEach(item => {
-    item.addEventListener('click', function() {
+    item.addEventListener('click', function(event) {
         // Create a ripple effect
         const ripple = document.createElement('div');
+        
+        // Get click position relative to the element
+        const rect = this.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
         ripple.style.cssText = `
             position: absolute;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.6);
             width: 100px;
             height: 100px;
+            left: ${x}px;
+            top: ${y}px;
             margin-top: -50px;
             margin-left: -50px;
             animation: ripple 0.6s;
