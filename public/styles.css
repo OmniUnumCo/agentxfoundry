@@ -921,3 +921,10 @@ body {
 .fade-in {
     animation: fadeIn 1s ease;
 }
+
+/* ==========================================
+   Success Message Close Button
+   ========================================== */
+.success-message-close-btn:hover {
+    transform: scale(1.05);
+}

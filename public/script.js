@@ -139,16 +139,10 @@ contactForm.addEventListener('submit', (e) => {
         </button>
     `;
 
-    // Add event listeners to the button instead of inline handlers
+    // Add click event listener to the button
     const closeButton = successMessage.querySelector('.success-message-close-btn');
     closeButton.addEventListener('click', () => {
         successMessage.remove();
-    });
-    closeButton.addEventListener('mouseover', () => {
-        closeButton.style.transform = 'scale(1.05)';
-    });
-    closeButton.addEventListener('mouseout', () => {
-        closeButton.style.transform = 'scale(1)';
     });
 
     document.body.appendChild(successMessage);
