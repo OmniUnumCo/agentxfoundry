@@ -125,7 +125,7 @@ contactForm.addEventListener('submit', (e) => {
     successMessage.innerHTML = `
         <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Thank You!</h3>
         <p style="margin-bottom: 1.5rem;">We've received your request and will get back to you within 24 hours.</p>
-        <button onclick="this.parentElement.remove()" style="
+        <button class="success-close-btn" style="
             background: white;
             color: #1e40af;
             border: none;
@@ -134,12 +134,24 @@ contactForm.addEventListener('submit', (e) => {
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-        " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+        ">
             Close
         </button>
     `;
 
     document.body.appendChild(successMessage);
+
+    // Add event listeners to the close button
+    const closeButton = successMessage.querySelector('.success-close-btn');
+    closeButton.addEventListener('click', () => {
+        successMessage.remove();
+    });
+    closeButton.addEventListener('mouseover', () => {
+        closeButton.style.transform = 'scale(1.05)';
+    });
+    closeButton.addEventListener('mouseout', () => {
+        closeButton.style.transform = 'scale(1)';
+    });
 
     // Reset form
     contactForm.reset();
