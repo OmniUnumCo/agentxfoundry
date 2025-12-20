@@ -216,16 +216,15 @@ document.querySelectorAll('.addon-item').forEach(item => {
         const y = e.clientY - rect.top;
         
         ripple.className = 'ripple-effect';
+        // Center the ripple at click coordinates by subtracting half the ripple size
         ripple.style.cssText = `
             position: absolute;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.6);
             width: 100px;
             height: 100px;
-            left: ${x}px;
-            top: ${y}px;
-            margin-left: -50px;
-            margin-top: -50px;
+            left: ${x - 50}px;
+            top: ${y - 50}px;
             animation: ripple 0.6s;
             pointer-events: none;
         `;
