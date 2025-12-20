@@ -201,6 +201,7 @@ document.querySelectorAll('.addon-item').forEach(item => {
     item.addEventListener('click', function(event) {
         // Create a ripple effect
         const ripple = document.createElement('div');
+        const rippleSize = 100;
         
         // Get click position relative to the element
         const rect = this.getBoundingClientRect();
@@ -211,12 +212,12 @@ document.querySelectorAll('.addon-item').forEach(item => {
             position: absolute;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.6);
-            width: 100px;
-            height: 100px;
+            width: ${rippleSize}px;
+            height: ${rippleSize}px;
             left: ${x}px;
             top: ${y}px;
-            margin-top: -50px;
-            margin-left: -50px;
+            margin-top: -${rippleSize / 2}px;
+            margin-left: -${rippleSize / 2}px;
             animation: ripple 0.6s;
             pointer-events: none;
         `;
