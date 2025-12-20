@@ -25,6 +25,11 @@
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
     --transition: all 0.3s ease;
+    
+    /* Ripple effect properties */
+    --ripple-size: 100px;
+    --ripple-color: rgba(255, 255, 255, 0.6);
+    --ripple-duration: 0.6s;
 }
 
 html {
@@ -958,10 +963,10 @@ body {
 .ripple-effect {
     position: absolute;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.6);
-    width: 100px;
-    height: 100px;
-    animation: ripple 0.6s;
+    background: var(--ripple-color);
+    width: var(--ripple-size);
+    height: var(--ripple-size);
+    animation: ripple var(--ripple-duration);
     pointer-events: none;
 }
 

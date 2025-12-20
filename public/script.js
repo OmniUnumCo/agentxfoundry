@@ -76,8 +76,10 @@ if (navbar) {
 const contactForm = document.getElementById('contactForm');
 
 if (contactForm) {
-    // Email validation using a simpler, more maintainable pattern
-    // Covers most common email formats without excessive complexity
+    // Simple email validation pattern for basic format checking
+    // Validates: local-part@domain.tld format
+    // Limitations: Does not validate international domains, special characters, or all RFC 5322 rules
+    // For production: Consider server-side validation for comprehensive checking
     const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     
     function isValidEmail(email) {
@@ -207,6 +209,10 @@ document.querySelectorAll('.service-card').forEach(card => {
 // ==========================================
 // Add-on Items Interactive Behavior
 // ==========================================
+// Ripple effect constants (must match CSS .ripple-effect dimensions)
+const RIPPLE_SIZE = 100; // Width and height in pixels
+const RIPPLE_HALF = RIPPLE_SIZE / 2;
+
 document.querySelectorAll('.addon-item').forEach(item => {
     item.addEventListener('click', function(e) {
         // Create a ripple effect at click position
@@ -216,9 +222,9 @@ document.querySelectorAll('.addon-item').forEach(item => {
         const y = e.clientY - rect.top;
         
         ripple.className = 'ripple-effect';
-        // Center the ripple at click coordinates
-        ripple.style.left = `${x - 50}px`;
-        ripple.style.top = `${y - 50}px`;
+        // Center the ripple at click coordinates (offset by half the ripple size)
+        ripple.style.left = `${x - RIPPLE_HALF}px`;
+        ripple.style.top = `${y - RIPPLE_HALF}px`;
 
         // Add ripple-container class if not already present
         if (!this.classList.contains('ripple-container')) {
