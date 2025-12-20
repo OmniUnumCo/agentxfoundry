@@ -76,10 +76,12 @@ if (navbar) {
 const contactForm = document.getElementById('contactForm');
 
 if (contactForm) {
-    // Email validation function
+    // Email validation function using HTML5 pattern
+    // This pattern follows RFC 5322 Official Standard for email validation
+    const EMAIL_PATTERN = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    
     function isValidEmail(email) {
-        // More robust email validation pattern
-        return /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(email);
+        return EMAIL_PATTERN.test(email);
     }
 
     contactForm.addEventListener('submit', (e) => {
@@ -116,41 +118,15 @@ if (contactForm) {
         // Create success message
         const successMessage = document.createElement('div');
         successMessage.className = 'form-success-modal';
-        successMessage.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-            color: white;
-            padding: 2rem 3rem;
-            border-radius: 15px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
-            z-index: 10000;
-            text-align: center;
-            animation: fadeIn 0.3s ease;
-            max-width: 90%;
-        `;
 
         successMessage.innerHTML = `
-            <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Form Submitted!</h3>
-            <p style="margin-bottom: 1rem;">Your information has been received.</p>
-            <p style="margin-bottom: 1.5rem; font-size: 0.9rem; opacity: 0.9;">
+            <h3 class="modal-title">Form Submitted!</h3>
+            <p class="modal-message">Your information has been received.</p>
+            <p class="modal-note">
                 <strong>Note:</strong> This is a demo form. No data is sent to a server.<br>
                 In production, integrate with a backend service.
             </p>
-            <button class="close-modal-btn" style="
-                background: white;
-                color: #1e40af;
-                border: none;
-                padding: 0.75rem 2rem;
-                border-radius: 25px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            ">
-                Close
-            </button>
+            <button class="close-modal-btn">Close</button>
         `;
 
         document.body.appendChild(successMessage);
@@ -160,12 +136,6 @@ if (contactForm) {
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
                 successMessage.remove();
-            });
-            closeBtn.addEventListener('mouseenter', () => {
-                closeBtn.style.transform = 'scale(1.05)';
-            });
-            closeBtn.addEventListener('mouseleave', () => {
-                closeBtn.style.transform = 'scale(1)';
             });
         }
 
@@ -292,15 +262,7 @@ document.querySelectorAll('.gallery-item').forEach(item => {
 // ==========================================
 const createScrollIndicator = () => {
     const indicator = document.createElement('div');
-    indicator.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        height: 3px;
-        background: linear-gradient(90deg, #1e40af, #fbbf24);
-        z-index: 10000;
-        transition: width 0.1s ease;
-    `;
+    indicator.className = 'scroll-progress-indicator';
     document.body.appendChild(indicator);
 
     window.addEventListener('scroll', () => {

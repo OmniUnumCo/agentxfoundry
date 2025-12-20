@@ -954,6 +954,65 @@ body {
     overflow: hidden;
 }
 
+/* Form Success Modal */
+.form-success-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+    color: white;
+    padding: 2rem 3rem;
+    border-radius: 15px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+    z-index: 10000;
+    text-align: center;
+    animation: fadeIn 0.3s ease;
+    max-width: 90%;
+}
+
+.form-success-modal .modal-title {
+    margin-bottom: 1rem;
+    font-size: 1.5rem;
+}
+
+.form-success-modal .modal-message {
+    margin-bottom: 1rem;
+}
+
+.form-success-modal .modal-note {
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+
+.form-success-modal .close-modal-btn {
+    background: white;
+    color: #1e40af;
+    border: none;
+    padding: 0.75rem 2rem;
+    border-radius: 25px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.form-success-modal .close-modal-btn:hover {
+    transform: scale(1.05);
+}
+
+/* Scroll Progress Indicator */
+.scroll-progress-indicator {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #1e40af, #fbbf24);
+    z-index: 10000;
+    transition: width 0.1s ease;
+    width: 0;
+}
+
 .fade-in {
     animation: fadeIn 1s ease;
 }
