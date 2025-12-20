@@ -79,12 +79,12 @@ contactForm.addEventListener('submit', (e) => {
         message: document.getElementById('message').value
     };
 
-    // Here you would typically send the data to a server
-    // For now, we'll just show a success message
+    // Note: Form submission is not yet implemented
+    // Display a message directing users to contact via phone or email
 
-    // Create success message
-    const successMessage = document.createElement('div');
-    successMessage.style.cssText = `
+    // Create info message
+    const infoMessage = document.createElement('div');
+    infoMessage.style.cssText = `
         position: fixed;
         top: 50%;
         left: 50%;
@@ -97,11 +97,17 @@ contactForm.addEventListener('submit', (e) => {
         z-index: 10000;
         text-align: center;
         animation: fadeIn 0.3s ease;
+        max-width: 500px;
     `;
 
-    successMessage.innerHTML = `
-        <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Thank You!</h3>
-        <p style="margin-bottom: 1.5rem;">We've received your request and will get back to you within 24 hours.</p>
+    infoMessage.innerHTML = `
+        <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Online Form Coming Soon!</h3>
+        <p style="margin-bottom: 1rem; line-height: 1.6;">Our online booking system is currently under development.</p>
+        <p style="margin-bottom: 1.5rem; line-height: 1.6;">Please contact us directly to schedule your detailing service:</p>
+        <div style="margin-bottom: 1.5rem; text-align: left; padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 10px;">
+            <p style="margin-bottom: 0.5rem;"><strong>📱 Phone:</strong> (508) 555-0123</p>
+            <p style="margin-bottom: 0;"><strong>📧 Email:</strong> info@mmjdetailing.com</p>
+        </div>
         <button onclick="this.parentElement.remove()" style="
             background: white;
             color: #1e40af;
@@ -116,20 +122,20 @@ contactForm.addEventListener('submit', (e) => {
         </button>
     `;
 
-    document.body.appendChild(successMessage);
+    document.body.appendChild(infoMessage);
 
     // Reset form
     contactForm.reset();
 
-    // Auto remove message after 5 seconds
+    // Auto remove message after 8 seconds (longer duration for more content)
     setTimeout(() => {
-        if (successMessage.parentElement) {
-            successMessage.remove();
+        if (infoMessage.parentElement) {
+            infoMessage.remove();
         }
-    }, 5000);
+    }, 8000);
 
-    // Log form data (in production, you'd send this to a server)
-    console.log('Form submitted:', formData);
+    // Log form data for development purposes
+    console.log('Form data (not submitted):', formData);
 });
 
 // ==========================================
