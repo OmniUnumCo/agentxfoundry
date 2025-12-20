@@ -78,7 +78,8 @@ const contactForm = document.getElementById('contactForm');
 if (contactForm) {
     // Email validation function
     function isValidEmail(email) {
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+        // More robust email validation pattern
+        return /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(email);
     }
 
     contactForm.addEventListener('submit', (e) => {
@@ -259,7 +260,10 @@ document.querySelectorAll('.addon-item').forEach(item => {
             pointer-events: none;
         `;
 
-        this.style.position = this.style.position || 'relative';
+        // Add ripple-container class if not already present
+        if (!this.classList.contains('ripple-container')) {
+            this.classList.add('ripple-container');
+        }
         this.appendChild(ripple);
 
         setTimeout(() => ripple.remove(), 600);

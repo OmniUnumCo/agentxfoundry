@@ -948,6 +948,12 @@ body {
     }
 }
 
+/* Ripple effect container */
+.ripple-container {
+    position: relative;
+    overflow: hidden;
+}
+
 .fade-in {
     animation: fadeIn 1s ease;
 }
