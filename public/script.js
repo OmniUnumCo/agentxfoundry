@@ -67,70 +67,72 @@ window.addEventListener('scroll', () => {
 // ==========================================
 const contactForm = document.getElementById('contactForm');
 
-contactForm.addEventListener('submit', (e) => {
-    e.preventDefault();
+if (contactForm) {
+    contactForm.addEventListener('submit', (e) => {
+        e.preventDefault();
 
-    // Get form data
-    const formData = {
-        name: document.getElementById('name').value,
-        email: document.getElementById('email').value,
-        phone: document.getElementById('phone').value,
-        service: document.getElementById('service').value,
-        message: document.getElementById('message').value
-    };
+        // Get form data
+        const formData = {
+            name: document.getElementById('name').value,
+            email: document.getElementById('email').value,
+            phone: document.getElementById('phone').value,
+            service: document.getElementById('service').value,
+            message: document.getElementById('message').value
+        };
 
-    // Here you would typically send the data to a server
-    // For now, we'll just show a success message
+        // Here you would typically send the data to a server
+        // For now, we'll just show a success message
 
-    // Create success message
-    const successMessage = document.createElement('div');
-    successMessage.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-        color: white;
-        padding: 2rem 3rem;
-        border-radius: 15px;
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
-        z-index: 10000;
-        text-align: center;
-        animation: fadeIn 0.3s ease;
-    `;
+        // Create success message
+        const successMessage = document.createElement('div');
+        successMessage.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            color: white;
+            padding: 2rem 3rem;
+            border-radius: 15px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            text-align: center;
+            animation: fadeIn 0.3s ease;
+        `;
 
-    successMessage.innerHTML = `
-        <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Thank You!</h3>
-        <p style="margin-bottom: 1.5rem;">We've received your request and will get back to you within 24 hours.</p>
-        <button onclick="this.parentElement.remove()" style="
-            background: white;
-            color: #1e40af;
-            border: none;
-            padding: 0.75rem 2rem;
-            border-radius: 25px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
-            Close
-        </button>
-    `;
+        successMessage.innerHTML = `
+            <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Thank You!</h3>
+            <p style="margin-bottom: 1.5rem;">We've received your request and will get back to you within 24 hours.</p>
+            <button onclick="this.parentElement.remove()" style="
+                background: white;
+                color: #1e40af;
+                border: none;
+                padding: 0.75rem 2rem;
+                border-radius: 25px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                Close
+            </button>
+        `;
 
-    document.body.appendChild(successMessage);
+        document.body.appendChild(successMessage);
 
-    // Reset form
-    contactForm.reset();
+        // Reset form
+        contactForm.reset();
 
-    // Auto remove message after 5 seconds
-    setTimeout(() => {
-        if (successMessage.parentElement) {
-            successMessage.remove();
-        }
-    }, 5000);
+        // Auto remove message after 5 seconds
+        setTimeout(() => {
+            if (successMessage.parentElement) {
+                successMessage.remove();
+            }
+        }, 5000);
 
-    // Log form data (in production, you'd send this to a server)
-    console.log('Form submitted:', formData);
-});
+        // Log form data (in production, you'd send this to a server)
+        console.log('Form submitted:', formData);
+    });
+}
 
 // ==========================================
 // Intersection Observer for Fade-in Animations
