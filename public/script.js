@@ -167,10 +167,21 @@ document.addEventListener('DOMContentLoaded', () => {
 // Dynamic Year in Footer
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
+    const currentYear = new Date().getFullYear();
+
+    // Prefer a dedicated year element if present
+    const yearElement = document.querySelector('#footer-year, [data-footer-year]');
+    if (yearElement) {
+        yearElement.textContent = currentYear;
+        return;
+    }
+
+    // Fallback: update the first year-like token in the footer text
     const footerText = document.querySelector('.footer-bottom p');
     if (footerText) {
-        const currentYear = new Date().getFullYear();
-        footerText.innerHTML = footerText.innerHTML.replace('2024', currentYear);
+        const yearPattern = /\b20\d{2}\b/;
+        const updatedHtml = footerText.innerHTML.replace(yearPattern, String(currentYear));
+        footerText.innerHTML = updatedHtml;
     }
 });
 
