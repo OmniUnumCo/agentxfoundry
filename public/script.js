@@ -66,14 +66,35 @@ window.addEventListener('scroll', () => {
 // Contact Form Handling
 // ==========================================
 const contactForm = document.getElementById('contactForm');
+const emailInput = document.getElementById('email');
+
+function isValidEmail(email) {
+    // Basic email format validation
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 contactForm.addEventListener('submit', (e) => {
     e.preventDefault();
 
+    const emailValue = emailInput.value.trim();
+
+    // Validate email format before processing the form
+    if (!isValidEmail(emailValue)) {
+        if (typeof emailInput.setCustomValidity === 'function') {
+            emailInput.setCustomValidity('Please enter a valid email address.');
+            emailInput.reportValidity();
+        }
+        emailInput.focus();
+        return;
+    } else if (typeof emailInput.setCustomValidity === 'function') {
+        // Clear any previous custom validation message
+        emailInput.setCustomValidity('');
+    }
+
     // Get form data
     const formData = {
         name: document.getElementById('name').value,
-        email: document.getElementById('email').value,
+        email: emailValue,
         phone: document.getElementById('phone').value,
         service: document.getElementById('service').value,
         message: document.getElementById('message').value
