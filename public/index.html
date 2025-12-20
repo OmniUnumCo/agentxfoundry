@@ -26,11 +26,11 @@
                 <li><a href="#contact" class="nav-link">Contact</a></li>
                 <li><a href="#contact" class="btn-nav">Book Now</a></li>
             </ul>
-            <div class="hamburger" id="hamburger">
+            <button class="hamburger" id="hamburger" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="navMenu">
                 <span></span>
                 <span></span>
                 <span></span>
-            </div>
+            </button>
         </div>
     </nav>
 
@@ -57,7 +57,7 @@
         <div class="container">
             <div class="features-grid">
                 <div class="feature-card">
-                    <div class="feature-icon">🚗</div>
+                    <div class="feature-icon" aria-hidden="true">🚗</div>
                     <h3>Mobile Service</h3>
                     <p>We come to your home or office - no need to leave your location</p>
                 </div>
@@ -242,14 +242,14 @@
                         <div class="info-icon">📧</div>
                         <div>
                             <h4>Email</h4>
-                            <p>info@mmjdetailing.com</p>
+                            <p><a href="mailto://info@mmjdetailing.com">info@mmjdetailing.com</a></p>
                         </div>
                     </div>
                     <div class="info-item">
                         <div class="info-icon">📱</div>
                         <div>
                             <h4>Phone</h4>
-                            <p>(508) 555-0123</p>
+                            <p><a href="tel:17742835392">774-283-5392</a></p>
                         </div>
                     </div>
                     <div class="info-item">
@@ -263,15 +263,21 @@
                 <div class="contact-form-wrapper">
                     <form class="contact-form" id="contactForm">
                         <div class="form-group">
+                            <label for="name" class="visually-hidden">Your Name</label>
                             <input type="text" id="name" name="name" placeholder="Your Name" required>
                         </div>
+                        </div>
                         <div class="form-group">
+                            <label for="email" class="visually-hidden">Your Email</label>
                             <input type="email" id="email" name="email" placeholder="Your Email" required>
                         </div>
                         <div class="form-group">
+                            <label for="phone" class="visually-hidden">Your Phone</label>
                             <input type="tel" id="phone" name="phone" placeholder="Your Phone">
                         </div>
                         <div class="form-group">
+                            <label for="service" class="visually-hidden">Select a Service</label>
+                            
                             <select id="service" name="service" required>
                                 <option value="">Select a Service</option>
                                 <option value="express">Express Detail</option>
@@ -281,6 +287,8 @@
                             </select>
                         </div>
                         <div class="form-group">
+                            <label for="message" class="visually-hidden">Message</label>
+
                             <textarea id="message" name="message" rows="5" placeholder="Tell us about your vehicle and any specific needs..." required></textarea>
                         </div>
                         <button type="submit" class="btn btn-primary btn-block">Request A Quote</button>
@@ -326,7 +334,7 @@
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2024 MMJ Detailing. All rights reserved. | Carver, Massachusetts</p>
+                <p>&copy; <span id="current-year">2025</span> MMJ Detailing. All rights reserved. | Carver, Massachusetts</p>
             </div>
         </div>
     </footer>

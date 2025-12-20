@@ -9,13 +9,8 @@ hamburger.addEventListener('click', () => {
 
     // Animate hamburger
     const spans = hamburger.querySelectorAll('span');
-    spans[0].style.transform = navMenu.classList.contains('active')
-        ? 'rotate(45deg) translate(7px, 7px)'
-        : 'none';
-    spans[1].style.opacity = navMenu.classList.contains('active') ? '0' : '1';
-    spans[2].style.transform = navMenu.classList.contains('active')
-        ? 'rotate(-45deg) translate(7px, -7px)'
-        : 'none';
+    hamburger.classList.toggle('active');
+        
 });
 
 // Close menu when clicking on a link
@@ -23,9 +18,7 @@ document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', () => {
         navMenu.classList.remove('active');
         const spans = hamburger.querySelectorAll('span');
-        spans[0].style.transform = 'none';
-        spans[1].style.opacity = '1';
-        spans[2].style.transform = 'none';
+        hamburger.classList.toggle('active');
     });
 });
 
@@ -84,20 +77,16 @@ contactForm.addEventListener('submit', (e) => {
 
     // Create success message
     const successMessage = document.createElement('div');
-    successMessage.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-        color: white;
-        padding: 2rem 3rem;
-        border-radius: 15px;
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
-        z-index: 10000;
-        text-align: center;
-        animation: fadeIn 0.3s ease;
+    successMessage.className = 'success-popup';
+    successMessage.innerHTML = `
+        <h3 class="success-popup__title">Thank You!</h3>
+        <p class="success-popup__text">We've received your request and will get back to you within 24 hours.</p>
+        <button class="success-popup__close-btn">Close</button>
     `;
+
+    successMessage.querySelector('.success-popup__close-btn').addEventListener('click', () => {
+        successMessage.remove();
+    });
 
     successMessage.innerHTML = `
         <h3 style="margin-bottom: 1rem; font-size: 1.5rem;">Thank You!</h3>
@@ -151,9 +140,15 @@ const observer = new IntersectionObserver((entries) => {
 
 // Observe elements for animation
 document.addEventListener('DOMContentLoaded', () => {
-    const animatedElements = document.querySelectorAll(
-        '.feature-card, .service-card, .gallery-item, .info-item'
-    );
+    const observer = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+                observer.unobserve(entry.target);
+            }
+        });
+    }, observerOptions);
 
     animatedElements.forEach(el => {
         el.style.opacity = '0';
@@ -229,18 +224,13 @@ document.head.appendChild(style);
 // Gallery Item Click Handler
 // ==========================================
 document.querySelectorAll('.gallery-item').forEach(item => {
-    item.addEventListener('click', function() {
-        // In a real implementation, this would open a lightbox
-        console.log('Gallery item clicked');
-
-        // Add a visual feedback
-        const originalTransform = this.style.transform;
-        this.style.transform = 'scale(0.95)';
-        setTimeout(() => {
-            this.style.transform = originalTransform;
-        }, 200);
-    });
+  item.addEventListener('click', function() {
+    console.log('Gallery item clicked');
+    this.classList.add('is-pressed');
+    setTimeout(() => this.classList.remove('is-pressed'), 200);
+  });
 });
+
 
 // ==========================================
 // Scroll Progress Indicator
@@ -277,10 +267,10 @@ inputs.forEach(input => {
         this.parentElement.style.transform = 'scale(1.02)';
         this.parentElement.style.transition = 'transform 0.2s ease';
     });
-
+    
     input.addEventListener('blur', function() {
         this.parentElement.style.transform = 'scale(1)';
-
+        
         // Validation feedback
         if (this.hasAttribute('required') && !this.value) {
             this.style.borderColor = '#ef4444';
@@ -288,7 +278,20 @@ inputs.forEach(input => {
             this.style.borderColor = '#10b981';
         }
     });
+    input.addEventListener('blur', function() {
+        this.parentElement.style.transform = 'scale(1)';
+
+        // Validation feedback
+        if (this.hasAttribute('required') && !this.value) {
+            this.classList.add('is-invalid');
+            this.classList.remove('is-valid');
+        } else if (this.value) {
+            this.classList.add('is-valid');
+            this.classList.remove('is-invalid');
+        }
+    });
 });
+
 
 // ==========================================
 // Lazy Loading Placeholder Enhancement

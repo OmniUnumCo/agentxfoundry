@@ -34,9 +34,9 @@ html {
 body {
     font-family: 'Poppins', sans-serif;
     line-height: 1.6;
-    color: var(--text-dark);
-    background-color: var(--white);
-    overflow-x: hidden;
+        color: var(--text-dark);
+        background-color: var(--white);
+        overflow-x: hidden;
 }
 
 .container {
@@ -148,6 +148,16 @@ body {
     background: var(--primary-color);
     border-radius: 3px;
     transition: var(--transition);
+}
+
+.hamburger.active span:nth-child(1) {
+    transform: rotate(45deg) translate(7px, 7px);
+}
+.hamburger.active span:nth-child(2) {
+    opacity: 0;
+}
+.hamburger.active span:nth-child(3) {
+    transform: rotate(-45deg) translate(7px, -7px);
 }
 
 /* ==========================================
@@ -649,6 +659,14 @@ body {
     transform: scale(1.1);
 }
 
+.gallery-item {
+  transition: transform 200ms ease;
+}
+
+.gallery-item.is-pressed {
+  transform: scale(0.95);
+}
+
 /* ==========================================
    Contact Section
    ========================================== */
@@ -725,6 +743,25 @@ body {
 
 .form-group textarea {
     resize: vertical;
+}
+
+.form-group input.is-invalid {
+  border-color: #ef4444;
+}
+.form-group input.is-valid {
+  border-color: #10b981;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 /* ==========================================
