@@ -1024,6 +1024,18 @@ body {
     width: 0;
 }
 
+/* Deployment notes */
+.deployment-note {
+    color: var(--text-light);
+    font-size: 0.85em;
+}
+
+.social-note {
+    font-size: 0.85rem;
+    color: var(--text-light);
+    margin-top: 0.5rem;
+}
+
 .fade-in {
     animation: fadeIn 1s ease;
 }

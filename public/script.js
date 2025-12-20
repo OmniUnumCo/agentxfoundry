@@ -76,9 +76,9 @@ if (navbar) {
 const contactForm = document.getElementById('contactForm');
 
 if (contactForm) {
-    // Email validation function using HTML5 pattern
-    // This pattern follows RFC 5322 Official Standard for email validation
-    const EMAIL_PATTERN = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    // Email validation using a simpler, more maintainable pattern
+    // Covers most common email formats without excessive complexity
+    const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     
     function isValidEmail(email) {
         return EMAIL_PATTERN.test(email);
