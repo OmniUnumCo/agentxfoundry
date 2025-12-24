@@ -47,26 +47,49 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
 // ==========================================
 const navbar = document.getElementById('navbar');
 
-window.addEventListener('scroll', () => {
-    if (window.scrollY > 50) {
-        navbar.classList.add('scrolled');
-    } else {
-        navbar.classList.remove('scrolled');
-    }
-});
+if (navbar) {
+    window.addEventListener('scroll', () => {
+        if (window.scrollY > 50) {
+            navbar.classList.add('scrolled');
+        } else {
+            navbar.classList.remove('scrolled');
+        }
+    });
+}
 
 // ==========================================
 // Contact Form Handling
 // ==========================================
 const contactForm = document.getElementById('contactForm');
+const emailInput = document.getElementById('email');
+
+function isValidEmail(email) {
+    // Basic email format validation
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 contactForm.addEventListener('submit', (e) => {
     e.preventDefault();
 
+    const emailValue = emailInput.value.trim();
+
+    // Validate email format before processing the form
+    if (!isValidEmail(emailValue)) {
+        if (typeof emailInput.setCustomValidity === 'function') {
+            emailInput.setCustomValidity('Please enter a valid email address.');
+            emailInput.reportValidity();
+        }
+        emailInput.focus();
+        return;
+    } else if (typeof emailInput.setCustomValidity === 'function') {
+        // Clear any previous custom validation message
+        emailInput.setCustomValidity('');
+    }
+
     // Get form data
     const formData = {
         name: document.getElementById('name').value,
-        email: document.getElementById('email').value,
+        email: emailValue,
         phone: document.getElementById('phone').value,
         service: document.getElementById('service').value,
         message: document.getElementById('message').value
@@ -162,10 +185,21 @@ document.addEventListener('DOMContentLoaded', () => {
 // Dynamic Year in Footer
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
+    const currentYear = new Date().getFullYear();
+
+    // Prefer a dedicated year element if present
+    const yearElement = document.querySelector('#footer-year, [data-footer-year]');
+    if (yearElement) {
+        yearElement.textContent = currentYear;
+        return;
+    }
+
+    // Fallback: update the first year-like token in the footer text
     const footerText = document.querySelector('.footer-bottom p');
     if (footerText) {
-        const currentYear = new Date().getFullYear();
-        footerText.innerHTML = footerText.innerHTML.replace('2024', currentYear);
+        const yearPattern = /\b20\d{2}\b/;
+        const updatedHtml = footerText.innerHTML.replace(yearPattern, String(currentYear));
+        footerText.innerHTML = updatedHtml;
     }
 });
 
