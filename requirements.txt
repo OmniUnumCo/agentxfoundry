@@ -32,7 +32,10 @@ pyttsx3>=2.90
 openai-whisper>=20240930
 sentence-transformers>=2.2.0
 cryptography>=41.0.0
-ecdsa>=0.18.0
+# Note: ecdsa is a dependency of python-jose. The ecdsa library has a known
+# Minerva timing attack vulnerability (CVE-2024-23342) that maintainers won't fix
+# (out of scope). However, python-jose[cryptography] prefers the cryptography
+# library for ECC operations, which has constant-time implementations.
 passlib>=1.7.0
 python-jose[cryptography]>=3.3.0
 python-multipart>=0.0.6
