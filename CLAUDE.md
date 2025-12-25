@@ -1,5 +1,13 @@
 # CLAUDE.md
 
+## CRITICAL RULES - READ FIRST
+
+**NEVER USE EMOJIS** - Do not use emojis in any output, commits, code, or documentation unless explicitly requested by the user.
+
+**NEVER USE --pretty=format** - Do not use `--pretty=format` in git commands. Use standard git output only.
+
+---
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
