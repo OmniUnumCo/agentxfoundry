@@ -13,24 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parallel task execution (async)
 - Multi-swarm joint operations
 
-## [0.2.1] - 2025-12-24
-
-### Security
-- **Dependency Updates**: Updated legacy package dependencies to address security vulnerabilities
-  - Updated `legacy/package-lock.json` with 1733 additions, 513 deletions
-  - Total changes: 2241 lines affected
-
-- **ECDSA Risk Documentation**: Documented known elliptic curve cryptography (ECDSA) risks
-  - Updated `requirements.txt` with security considerations
-  - Added documentation for key management best practices
-
-### Changed
-- **Python Dependencies**: Updated 5 dependencies in `requirements.txt`
-  - Enhanced security posture across the project
-  - Ensured compatibility with latest security patches
-
----
-
 ## [0.2.0] - 2025-12-24
 
 ### Added - Phase 2-3: Autonomous Operations
