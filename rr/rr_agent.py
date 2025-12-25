@@ -228,22 +228,22 @@ class RRAgent(BaseAgent):
         """
         rank_llm_map = {
             # Officers get premium models
-            RankEnum.GENERAL: "anthropic",  # Claude Opus/Sonnet
+            RankEnum.GENERAL: "anthropic",  # Claude Sonnet 4
             RankEnum.COLONEL: "anthropic",
-            RankEnum.MAJOR: "openai",  # GPT-4
-            RankEnum.CAPTAIN: "openai",
-            RankEnum.LIEUTENANT: "google",  # Gemini
+            RankEnum.MAJOR: "anthropic",
+            RankEnum.CAPTAIN: "llama",  # Llama3 8B local
+            RankEnum.LIEUTENANT: "llama",
 
-            # NCOs get balanced models
-            RankEnum.SERGEANT_MAJOR: "google",
-            RankEnum.MASTER_SERGEANT: "groq",  # Mixtral
-            RankEnum.SERGEANT: "groq",
-            RankEnum.CORPORAL: "groq",
+            # NCOs get local models
+            RankEnum.SERGEANT_MAJOR: "llama",
+            RankEnum.MASTER_SERGEANT: "llama",
+            RankEnum.SERGEANT: "llama",
+            RankEnum.CORPORAL: "llama",
 
-            # Enlisted get fast/efficient models
-            RankEnum.SPECIALIST: "groq",
-            RankEnum.PRIVATE_FIRST_CLASS: "deepseek",
-            RankEnum.PRIVATE: "deepseek",
+            # Enlisted get local models
+            RankEnum.SPECIALIST: "llama",
+            RankEnum.PRIVATE_FIRST_CLASS: "llama",
+            RankEnum.PRIVATE: "llama",
         }
 
         llm_name = rank_llm_map.get(self.rank, "groq")
