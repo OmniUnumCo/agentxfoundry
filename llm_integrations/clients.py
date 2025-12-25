@@ -14,10 +14,17 @@ class LLMClient:
         self.client = self._init_client()
 
     def _load_api_key(self) -> str:
+        # Try file path from env
         key_file = os.getenv(f"{self.name.upper()}_API_KEY_FILE")
         if key_file and os.path.exists(key_file):
             with open(key_file, 'r') as f:
                 return f.read().strip()
+        # Try default secrets directory
+        default_path = os.path.join(os.path.dirname(__file__), '..', 'secrets', f'{self.name}_api_key')
+        if os.path.exists(default_path):
+            with open(default_path, 'r') as f:
+                return f.read().strip()
+        # Try environment variable
         return os.getenv(f"{self.name.upper()}_API_KEY", "")
 
     def _init_client(self):
@@ -45,8 +52,8 @@ class LLMClient:
             return response.choices[0].message.content
         elif self.name == "anthropic":
             response = self.client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=1000,
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.content[0].text

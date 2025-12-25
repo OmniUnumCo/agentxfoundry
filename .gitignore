@@ -2,3 +2,11 @@ test/
 node_modules/
 .genkit/
 *.js
+secrets/
+*.pem
+*_api_key
+__pycache__/
+*.pyc
+venv/
+venv_new/
+.env

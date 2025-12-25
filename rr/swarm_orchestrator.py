@@ -13,6 +13,7 @@ from .models import (
 from .agent_factory import AgentFactory
 from .rr_agent import RRAgent
 from .mission_planner import MissionPlanner
+from .db_persistence import RRDatabase
 
 
 class SwarmOrchestrator:
@@ -25,12 +26,23 @@ class SwarmOrchestrator:
     Phase 2-3: Includes autonomous mission planning and delegation
     """
 
-    def __init__(self, agent_factory: AgentFactory, enable_autonomous_planning: bool = True):
+    def __init__(self, agent_factory: AgentFactory, enable_autonomous_planning: bool = True, enable_db_persistence: bool = True):
         self.agent_factory = agent_factory
         self.active_swarms: Dict[str, Swarm] = {}
         self.missions: Dict[str, Mission] = {}
         self.units: Dict[str, Unit] = {}
         self.enable_autonomous_planning = enable_autonomous_planning
+        self.enable_db_persistence = enable_db_persistence
+
+        # Initialize database persistence
+        self.db = None
+        if enable_db_persistence:
+            try:
+                self.db = RRDatabase()
+                logger.info("SwarmOrchestrator initialized with DATABASE PERSISTENCE enabled")
+            except Exception as e:
+                logger.warning(f"Database initialization failed: {e}, continuing without persistence")
+                self.enable_db_persistence = False
 
         # Initialize mission planner if autonomous mode enabled
         self.mission_planner = None
