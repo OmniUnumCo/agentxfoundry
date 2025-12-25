@@ -4,6 +4,7 @@ from openai import OpenAI
 from anthropic import Anthropic
 import google.generativeai as genai
 from groq import Groq
+import requests
 # Add other imports as needed
 
 class LLMClient:
@@ -29,6 +30,8 @@ class LLMClient:
             return genai.GenerativeModel('gemini-pro')
         elif self.name == "groq":
             return Groq(api_key=self.api_key)
+        elif self.name in ["ollama", "llama", "deepseek", "qwen"]:
+            return "http://localhost:11434"  # Ollama endpoint
         # Add other LLMs
         else:
             raise NotImplementedError(f"Client for {self.name} not implemented")
@@ -56,13 +59,25 @@ class LLMClient:
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content
+        elif self.name == "ollama":
+            resp = requests.post(f"{self.client}/api/generate", json={"model": "llama3:latest", "prompt": prompt, "stream": False})
+            return resp.json()["response"]
+        elif self.name == "llama":
+            resp = requests.post(f"{self.client}/api/generate", json={"model": "llama3:latest", "prompt": prompt, "stream": False})
+            return resp.json()["response"]
+        elif self.name == "deepseek":
+            resp = requests.post(f"{self.client}/api/generate", json={"model": "deepseek-v3.1:671b-cloud", "prompt": prompt, "stream": False})
+            return resp.json()["response"]
+        elif self.name == "qwen":
+            resp = requests.post(f"{self.client}/api/generate", json={"model": "qwen3-coder:480b-cloud", "prompt": prompt, "stream": False})
+            return resp.json()["response"]
         # Add other implementations
         else:
             raise NotImplementedError(f"Query for {self.name} not implemented")
 
 def get_llm_clients() -> Dict[str, LLMClient]:
     clients = {}
-    llm_names = ["openai", "anthropic", "google", "groq", "perplexity", "deepseek", "qwen", "llama", "mistral"]
+    llm_names = ["ollama", "llama", "deepseek", "qwen", "openai", "anthropic", "google", "groq"]
     for name in llm_names:
         try:
             clients[name] = LLMClient(name)
