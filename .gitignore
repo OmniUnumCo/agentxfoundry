@@ -10,3 +10,7 @@ __pycache__/
 venv/
 venv_new/
 .env
+agent_env/
+fragments/
+.DS_Store
+.idx/
