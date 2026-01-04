@@ -14,3 +14,10 @@ agent_env/
 fragments/
 .DS_Store
 .idx/
+
+# Jasteri artifacts (keep out of repo)
+Jasteri.sh
+*.jstar
+*jstar_output/
+*jasteri*
+*jasterish*

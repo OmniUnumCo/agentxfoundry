@@ -14,6 +14,13 @@ class LLMClient:
         self.api_key = api_key or self._load_api_key()
         self.client = self._init_client()
 
+    @staticmethod
+    def _extract_response(payload: Dict[str, Any]) -> str:
+        """Ensure API payload contains a non-null 'response' field."""
+        if "response" not in payload or payload.get("response") is None:
+            raise ValueError("LLM response payload missing 'response' field")
+        return str(payload.get("response"))
+
     def _load_api_key(self) -> str:
         # Try file path from env
         key_file = os.getenv(f"{self.name.upper()}_API_KEY_FILE")
@@ -74,7 +81,7 @@ class LLMClient:
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            return resp.json().get("response")
+            return self._extract_response(resp.json())
         elif self.name == "llama":
             resp = requests.post(
                 f"{self.client}/api/generate",
@@ -82,7 +89,7 @@ class LLMClient:
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            return resp.json().get("response")
+            return self._extract_response(resp.json())
         elif self.name == "deepseek":
             resp = requests.post(
                 f"{self.client}/api/generate",
@@ -90,7 +97,7 @@ class LLMClient:
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            return resp.json().get("response")
+            return self._extract_response(resp.json())
         elif self.name == "qwen":
             resp = requests.post(
                 f"{self.client}/api/generate",
@@ -98,7 +105,7 @@ class LLMClient:
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            return resp.json().get("response")
+            return self._extract_response(resp.json())
         # Add other implementations
         else:
             raise NotImplementedError(f"Query for {self.name} not implemented")

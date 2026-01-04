@@ -1,5 +1,0 @@
-// J* Lexed from main.py
-codex main {
-    source: "main.py"
-    // Add lexed content here
-}
