@@ -56,8 +56,8 @@ class RecursionEngine:
             try:
                 response = client.query(prompt)
                 responses.append(response)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"LLM '{name}' failed in threat loop: {e}")
         data['analysis'] = " ".join(responses)
         return data
 
@@ -70,8 +70,8 @@ class RecursionEngine:
             try:
                 response = client.query(prompt)
                 improved.append(response)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"LLM '{name}' failed in content loop: {e}")
         data['improved_content'] = " ".join(improved)
         return data
 
@@ -84,7 +84,7 @@ class RecursionEngine:
             try:
                 response = client.query(prompt)
                 fixes.append(response)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"LLM '{name}' failed in coding loop: {e}")
         data['fixed_code'] = " ".join(fixes)
         return data

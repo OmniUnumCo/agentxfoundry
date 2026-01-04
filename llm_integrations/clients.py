@@ -10,6 +10,7 @@ import requests
 class LLMClient:
     def __init__(self, name: str, api_key: str = None):
         self.name = name
+        self.timeout = float(os.getenv("LLM_HTTP_TIMEOUT", "30"))
         self.api_key = api_key or self._load_api_key()
         self.client = self._init_client()
 
@@ -67,17 +68,37 @@ class LLMClient:
             )
             return response.choices[0].message.content
         elif self.name == "ollama":
-            resp = requests.post(f"{self.client}/api/generate", json={"model": "llama3:latest", "prompt": prompt, "stream": False})
-            return resp.json()["response"]
+            resp = requests.post(
+                f"{self.client}/api/generate",
+                json={"model": "llama3:latest", "prompt": prompt, "stream": False},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response")
         elif self.name == "llama":
-            resp = requests.post(f"{self.client}/api/generate", json={"model": "llama3:latest", "prompt": prompt, "stream": False})
-            return resp.json()["response"]
+            resp = requests.post(
+                f"{self.client}/api/generate",
+                json={"model": "llama3:latest", "prompt": prompt, "stream": False},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response")
         elif self.name == "deepseek":
-            resp = requests.post(f"{self.client}/api/generate", json={"model": "deepseek-v3.1:671b-cloud", "prompt": prompt, "stream": False})
-            return resp.json()["response"]
+            resp = requests.post(
+                f"{self.client}/api/generate",
+                json={"model": "deepseek-v3.1:671b-cloud", "prompt": prompt, "stream": False},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response")
         elif self.name == "qwen":
-            resp = requests.post(f"{self.client}/api/generate", json={"model": "qwen3-coder:480b-cloud", "prompt": prompt, "stream": False})
-            return resp.json()["response"]
+            resp = requests.post(
+                f"{self.client}/api/generate",
+                json={"model": "qwen3-coder:480b-cloud", "prompt": prompt, "stream": False},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response")
         # Add other implementations
         else:
             raise NotImplementedError(f"Query for {self.name} not implemented")

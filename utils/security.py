@@ -1,4 +1,5 @@
 import os
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 from cryptography.fernet import Fernet
@@ -11,15 +12,22 @@ from pydantic import BaseModel
 # Load encryption key
 def load_encryption_key() -> bytes:
     key_file = os.getenv("ENCRYPTION_KEY_FILE", "secrets/encryption_key")
-    if os.path.exists(key_file):
-        with open(key_file, 'rb') as f:
+    key_path = os.path.abspath(key_file)
+    key_dir = os.path.dirname(key_path)
+
+    # Ensure the target directory exists so key creation does not fail
+    if key_dir and not os.path.exists(key_dir):
+        os.makedirs(key_dir, exist_ok=True)
+
+    if os.path.exists(key_path):
+        with open(key_path, "rb") as f:
             return f.read()
-    else:
-        # Generate a new key if not exists
-        key = Fernet.generate_key()
-        with open(key_file, 'wb') as f:
-            f.write(key)
-        return key
+
+    # Generate and persist a new key if it does not exist
+    key = Fernet.generate_key()
+    with open(key_path, "wb") as f:
+        f.write(key)
+    return key
 
 fernet = Fernet(load_encryption_key())
 
@@ -28,11 +36,14 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT settings
 SECRET_KEY_FILE = os.getenv("JWT_SECRET_KEY_FILE", "secrets/jwt_secret_key")
+jwt_env_secret = os.getenv("JWT_SECRET_KEY")
 if os.path.exists(SECRET_KEY_FILE):
     with open(SECRET_KEY_FILE, 'r') as f:
         SECRET_KEY = f.read().strip()
+elif jwt_env_secret:
+    SECRET_KEY = jwt_env_secret.strip()
 else:
-    SECRET_KEY = "fallback_secret_key"  # Use a strong key in production
+    raise RuntimeError("JWT secret key is not configured. Set JWT_SECRET_KEY_FILE or JWT_SECRET_KEY.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

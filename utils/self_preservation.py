@@ -55,8 +55,8 @@ class SelfPreservation:
             try:
                 response = client.query(prompt)
                 patches.append(response)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"LLM '{name}' failed during patch generation: {e}")
         # Apply the best patch (placeholder)
         logger.info(f"Generated patches: {patches}")
         # In practice, apply the patch
