@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+
+# uv
+uv.lock
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Rust build output
+target/
+
+# Legacy Python implementation -- superseded by the Rust rewrite.
+# Kept on disk for reference; not tracked in git.
+src/rr/
+src/rr_mcp/
+src/rr_runtime/
+tests/integration/
+tests/parity/
+tests/unit/
+tests/__init__.py
+tests/__pycache__/
+tests/conftest.py
+pyproject.toml
+uv.lock
+
+# RR local runtime artifacts (should NEVER be in source tree)
+# (runtime state lives at ~/.rational-reserve/, not here)

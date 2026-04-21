@@ -1,0 +1,72 @@
+[guard]
+listener_interval_seconds = 60
+launchd_interval_seconds = 300
+enforce = false
+min_profile_samples = 5
+cpu_z_threshold = 3.5
+rss_z_threshold = 3.5
+thread_z_threshold = 3.0
+listener_z_threshold = 3.0
+network_z_threshold = 3.0
+zero_variance_spike_factor = 1.5
+trusted_subject_threshold_delta = 1.0
+apple_subject_threshold_delta = 1.5
+actionable_score_boost = 1.0
+untrusted_score_boost = 0.75
+cpu_spike_score = 2.0
+rss_spike_score = 1.5
+thread_spike_score = 1.25
+new_listener_score = 2.5
+listener_spike_score = 2.0
+new_network_activity_score = 1.75
+network_activity_spike_score = 1.75
+signer_drift_score = 3.0
+parent_drift_score = 1.5
+log_score_threshold = 2.5
+alert_score_threshold = 4.5
+contain_score_threshold = 6.5
+terminate_score_threshold = 8.5
+
+trusted_path_prefixes = [
+  "/System/",
+  "/usr/libexec/",
+  "/usr/sbin/",
+  "/Applications/Claude.app/",
+  "/opt/homebrew/bin/colima",
+  "/opt/homebrew/bin/docker",
+  "/opt/homebrew/bin/limactl",
+  "/Users/nnos/.rational-reserve/bin/",
+]
+
+trusted_process_names = [
+  "ControlCenter",
+  "SystemUIServer",
+  "Dock",
+  "WindowServer",
+  "rapportd",
+  "symptomsd",
+  "mDNSResponder",
+  "rr-daemon",
+  "rr-mcp",
+  "colima",
+  "docker",
+  "containerd",
+]
+
+protected_launchd_paths = [
+  "/Library/LaunchDaemons",
+  "/Library/LaunchAgents",
+  "/Users/nnos/Library/LaunchAgents",
+]
+
+actionable_path_prefixes = [
+  "/Users/nnos/Downloads/",
+  "/Users/nnos/.qwen/",
+  "/Users/nnos/.listener-guard/",
+  "/Users/nnos/.integrity-monitor/",
+]
+
+actionable_process_names = [
+  "listener-guard.sh",
+  "integrity-monitor",
+]

@@ -1,0 +1,11 @@
+# Semgrep ignore patterns for rational-reserve.
+#
+# Entries here suppress semgrep findings on the listed paths. Prefer narrow,
+# file-level suppression with an explanation comment above each entry.
+
+# doctrine.rs implements a strict allowlist-based slug validator
+# (`validate_slug`) and a canonicalized root-containment check
+# (`ensure_within_root`) before any filesystem read. Semgrep's generic
+# Rust taint rule flags every `&PathBuf` -> fs read regardless of
+# upstream validation; the mitigations in this file are correct.
+src/doctrine.rs
