@@ -23,8 +23,10 @@ pub mod config;
 pub mod logging;
 pub mod persistence;
 pub mod daemon;
+pub mod broker;
 
 pub use agent::{tier_for, tier_for_civilian, tier_for_rank, RRAgent};
+pub use broker::ContractBroker;
 pub use c2_router::C2Router;
 pub use factory::AgentFactory;
 pub use models::{

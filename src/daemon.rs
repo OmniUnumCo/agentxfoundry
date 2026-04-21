@@ -253,7 +253,9 @@ async fn dispatch(request: &serde_json::Value, state: &DaemonState) -> serde_jso
         "rr_status" => handle_status(state, &params),
         "cr_register_civilian" => handle_cr_register_civilian(state, &params),
         "cr_list_civilians" => handle_cr_list_civilians(state, &params),
+        "cr_firm_detail" => handle_cr_firm_detail(state, &params),
         "cr_contract_request" => handle_cr_contract_request(state, &params),
+        "cr_contract_accept" => handle_cr_contract_accept(state, &params),
         "cr_contract_sitrep" => handle_cr_contract_sitrep(state, &params),
         "cr_contract_closeout" => handle_cr_contract_closeout(state, &params),
         _ => Err(DaemonError::MethodNotFound(method.to_string())),
@@ -636,6 +638,134 @@ fn handle_cr_list_civilians(
     Ok(json!({
         "count": civs.len(),
         "civilians": civs,
+    }))
+}
+
+fn handle_cr_firm_detail(
+    state: &DaemonState,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, DaemonError> {
+    let firm_id = params
+        .get("firm_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| DaemonError::Handler("firm_id is required".to_string()))?;
+
+    let firm_record = state
+        .state_store
+        .load_civilian(firm_id)
+        .map_err(|e| DaemonError::State(e.to_string()))?
+        .ok_or_else(|| DaemonError::Handler(format!("firm `{}` not found", firm_id)))?;
+
+    if !firm_record.is_firm() && !firm_record.is_independent() {
+        return Err(DaemonError::Handler(format!(
+            "`{}` is a specialist; cr_firm_detail is only valid for firms and independents",
+            firm_id
+        )));
+    }
+
+    // Load doctrine for routing-rules inspection. Falls back gracefully if
+    // the firm doctrine has drifted from the stored record.
+    let doctrine = state
+        .doctrine
+        .civilian_doctrine(firm_id)
+        .map_err(|e| DaemonError::Handler(e.to_string()))?;
+
+    let open = state
+        .state_store
+        .list_contracts_by_firm(firm_id, None)
+        .map_err(|e| DaemonError::State(e.to_string()))?;
+    let open_contracts: Vec<_> = open
+        .iter()
+        .filter(|c| !matches!(c.state, ContractState::Closed | ContractState::Rejected))
+        .map(|c| serde_json::to_value(c).unwrap_or_default())
+        .collect();
+
+    let routing_rules = crate::broker::ContractBroker::rules(&doctrine);
+
+    Ok(json!({
+        "firm": serde_json::to_value(&firm_record).unwrap_or_default(),
+        "specialists": doctrine.specialists,
+        "contract_scope": doctrine.contract_scope,
+        "routing_rules": routing_rules
+            .iter()
+            .map(|(s, kws)| json!({"specialist": s, "keywords": kws}))
+            .collect::<Vec<_>>(),
+        "open_contracts": open_contracts,
+    }))
+}
+
+fn handle_cr_contract_accept(
+    state: &DaemonState,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, DaemonError> {
+    let contract_id = params
+        .get("contract_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| DaemonError::Handler("contract_id is required".to_string()))?;
+    let specialist_id = params
+        .get("specialist_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| DaemonError::Handler("specialist_id is required".to_string()))?;
+
+    let mut contract = state
+        .state_store
+        .load_contract(contract_id)
+        .map_err(|e| DaemonError::State(e.to_string()))?
+        .ok_or_else(|| DaemonError::Handler(format!("contract `{}` not found", contract_id)))?;
+
+    if !matches!(contract.state, ContractState::Requested) {
+        return Err(DaemonError::Handler(format!(
+            "contract `{}` is in state {:?}; only Requested contracts can be accepted",
+            contract.id, contract.state
+        )));
+    }
+
+    // Validate that the specialist is part of the firm according to doctrine.
+    let firm_doctrine = state
+        .doctrine
+        .civilian_doctrine(&contract.firm_id)
+        .map_err(|e| DaemonError::Handler(e.to_string()))?;
+
+    // Independents do not have specialists -- they accept work directly.
+    // Firms require that the specialist appear in their `specialists:` list.
+    let accepted_specialist = if firm_doctrine.kind == CivilianTier::Firm {
+        if !firm_doctrine.specialists.iter().any(|s| s == specialist_id) {
+            return Err(DaemonError::Handler(format!(
+                "specialist `{}` is not a member of firm `{}` (members: {:?})",
+                specialist_id, contract.firm_id, firm_doctrine.specialists
+            )));
+        }
+        specialist_id.to_string()
+    } else {
+        // Independent civilian -- specialist_id is conventionally the
+        // civilian's own slug; accept it for uniformity.
+        specialist_id.to_string()
+    };
+
+    contract.state = ContractState::Accepted;
+    contract.routed_specialist_id = Some(accepted_specialist.clone());
+
+    state
+        .state_store
+        .save_contract(&contract)
+        .map_err(|e| DaemonError::State(e.to_string()))?;
+
+    state
+        .state_store
+        .append_event(
+            "CONTRACT_ACCEPTED",
+            &json!({
+                "contract_id": contract.id,
+                "firm_id": contract.firm_id,
+                "routed_specialist_id": accepted_specialist,
+            }),
+            None,
+            Some(&contract.contracting_agent),
+        )
+        .map_err(|e| DaemonError::State(e.to_string()))?;
+
+    Ok(json!({
+        "contract": serde_json::to_value(&contract).unwrap_or_default(),
     }))
 }
 

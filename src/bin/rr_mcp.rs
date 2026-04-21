@@ -68,7 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     "rr_status" => ("rr_status", arguments),
                     "cr_register_civilian" => ("cr_register_civilian", arguments),
                     "cr_list_civilians" => ("cr_list_civilians", arguments),
+                    "cr_firm_detail" => ("cr_firm_detail", arguments),
                     "cr_contract_request" => ("cr_contract_request", arguments),
+                    "cr_contract_accept" => ("cr_contract_accept", arguments),
                     "cr_contract_sitrep" => ("cr_contract_sitrep", arguments),
                     "cr_contract_closeout" => ("cr_contract_closeout", arguments),
                     "initialize" => {
@@ -147,6 +149,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         "inputSchema": {"type": "object", "properties": {}},
                                     },
                                     {
+                                        "name": "cr_firm_detail",
+                                        "description": "Inspect a firm: doctrine + specialists + routing rules + open contracts",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "required": ["firm_id"],
+                                            "properties": {
+                                                "firm_id": {"type": "string"},
+                                            },
+                                        },
+                                    },
+                                    {
                                         "name": "cr_contract_request",
                                         "description": "Initiate a contract from a military agent to a civilian firm (or independent)",
                                         "inputSchema": {
@@ -158,6 +171,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                                 "brief": {"type": "string"},
                                                 "mission_id": {"type": "string"},
                                                 "priority": {"type": "string", "enum": ["routine", "priority", "urgent", "critical"]},
+                                            },
+                                        },
+                                    },
+                                    {
+                                        "name": "cr_contract_accept",
+                                        "description": "Firm-side: accept a Requested contract and assign to a specialist",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "required": ["contract_id", "specialist_id"],
+                                            "properties": {
+                                                "contract_id": {"type": "string"},
+                                                "specialist_id": {"type": "string"},
                                             },
                                         },
                                     },
