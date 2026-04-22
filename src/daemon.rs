@@ -323,7 +323,6 @@ fn handle_ping(state: &DaemonState, _params: &serde_json::Value) -> Result<serde
 fn handle_roster(state: &DaemonState, params: &serde_json::Value) -> Result<serde_json::Value, DaemonError> {
     let swarm_id = params.get("swarm_id").and_then(|v| v.as_str());
     let status = params.get("status").and_then(|v| v.as_str()).map(|s| {
-        // Parse from snake_case string to StatusEnum
         match s {
             "standby" => StatusEnum::Standby,
             "active" => StatusEnum::Active,
@@ -334,7 +333,6 @@ fn handle_roster(state: &DaemonState, params: &serde_json::Value) -> Result<serd
         }
     });
     let rank = params.get("rank").and_then(|v| v.as_str()).map(|s| {
-        // Simplified — in production use proper serde deserialization
         match s {
             "GEN" => RankEnum::GEN,
             "COL" => RankEnum::COL,
@@ -371,19 +369,61 @@ fn handle_roster(state: &DaemonState, params: &serde_json::Value) -> Result<serd
         }
     });
 
-    let records = state
-        .state_store
-        .list_agents(swarm_id, status, rank, mos)
-        .map_err(|e| DaemonError::State(e.to_string()))?;
+    // `class` filter: "military" | "civilian" | "all" (default "all").
+    let class = params
+        .get("class")
+        .and_then(|v| v.as_str())
+        .unwrap_or("all");
+    let include_military = class == "all" || class == "military";
+    let include_civilian = class == "all" || class == "civilian";
 
-    let agents: Vec<_> = records
-        .iter()
-        .map(|r| serde_json::to_value(r).unwrap_or_default())
-        .collect();
+    let mut military: Vec<serde_json::Value> = Vec::new();
+    if include_military {
+        let records = state
+            .state_store
+            .list_agents(swarm_id, status, rank, mos)
+            .map_err(|e| DaemonError::State(e.to_string()))?;
+        military = records
+            .iter()
+            .map(|r| {
+                let mut v = serde_json::to_value(r).unwrap_or_default();
+                if let serde_json::Value::Object(ref mut m) = v {
+                    m.insert("class".into(), json!("military"));
+                }
+                v
+            })
+            .collect();
+    }
+
+    let mut civilians: Vec<serde_json::Value> = Vec::new();
+    if include_civilian {
+        // Civilian filter: swarm_id / rank / mos do not apply; civilians are
+        // outside the chain of command. Only `status` filter is meaningful
+        // and we apply it in-memory.
+        let records = state
+            .state_store
+            .list_civilians()
+            .map_err(|e| DaemonError::State(e.to_string()))?;
+        civilians = records
+            .into_iter()
+            .filter(|r| status.map_or(true, |s| r.status == s))
+            .map(|r| {
+                let mut v = serde_json::to_value(&r).unwrap_or_default();
+                if let serde_json::Value::Object(ref mut m) = v {
+                    m.insert("class".into(), json!("civilian"));
+                }
+                v
+            })
+            .collect();
+    }
 
     Ok(json!({
-        "count": agents.len(),
-        "agents": agents,
+        "count": military.len() + civilians.len(),
+        "military_count": military.len(),
+        "civilian_count": civilians.len(),
+        "class_filter": class,
+        "agents": military,
+        "civilians": civilians,
     }))
 }
 

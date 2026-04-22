@@ -282,7 +282,14 @@ impl SwarmOrchestrator {
             .as_deref()
             .and_then(|mid| self.state_store.load_mission(mid).ok().flatten());
 
-        let aar = generate_aar(&swarm, mission.as_ref(), &agents);
+        // Collect every contract authored by one of this swarm's agents.
+        // We iterate the civilian roster and pull each firm's contract list,
+        // then filter by contracting_agent. Avoids widening StateStore's
+        // trait surface for a single consumer.
+        let agent_ids: HashSet<String> = agents.iter().map(|a| a.id.clone()).collect();
+        let swarm_contracts = self.collect_swarm_contracts(&agent_ids);
+
+        let aar = generate_aar(&swarm, mission.as_ref(), &agents, &swarm_contracts);
 
         // Mark swarm disbanded.
         let now = chrono::Utc::now();
@@ -330,6 +337,31 @@ impl SwarmOrchestrator {
             disbanded_at: now,
             aar,
         })
+    }
+
+    /// Find every contract authored by any of the given agent ids.
+    /// Iterates the civilian roster (firms + independents) and per-civilian
+    /// pulls the contract list, keeping rows where `contracting_agent` is in
+    /// `agent_ids`. Silent on persistence failures; returns what it can.
+    fn collect_swarm_contracts(
+        &self,
+        agent_ids: &HashSet<String>,
+    ) -> Vec<ContractRecord> {
+        let civilians = match self.state_store.list_civilians() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let mut out: Vec<ContractRecord> = Vec::new();
+        for civ in &civilians {
+            if let Ok(contracts) = self.state_store.list_contracts_by_firm(&civ.id, None) {
+                for c in contracts {
+                    if agent_ids.contains(&c.contracting_agent) {
+                        out.push(c);
+                    }
+                }
+            }
+        }
+        out
     }
 
     async fn execute_single_task(
@@ -482,7 +514,12 @@ fn mos_code(mos: &MOSEnum) -> &'static str {
 /// `agent_performance` from the live roster (rank/MOS markers) and lets
 /// the caller (or later reducers) attach lessons/recommendations from the
 /// event log.
-fn generate_aar(swarm: &Swarm, mission: Option<&Mission>, agents: &[AgentRecord]) -> AAR {
+fn generate_aar(
+    swarm: &Swarm,
+    mission: Option<&Mission>,
+    agents: &[AgentRecord],
+    contracts: &[ContractRecord],
+) -> AAR {
     let success = mission
         .map(|m| m.status == StatusEnum::Complete)
         .unwrap_or(false);
@@ -502,19 +539,59 @@ fn generate_aar(swarm: &Swarm, mission: Option<&Mission>, agents: &[AgentRecord]
     }
     let mut resource_usage: HashMap<String, serde_json::Value> = HashMap::new();
     resource_usage.insert("total_agents".into(), json!(agents.len()));
+    resource_usage.insert("total_contracts".into(), json!(contracts.len()));
+    let contracts_closed_ok = contracts
+        .iter()
+        .filter(|c| c.outcome == Some(ContractOutcome::Complete))
+        .count();
+    let contracts_failed = contracts
+        .iter()
+        .filter(|c| {
+            matches!(c.outcome, Some(ContractOutcome::Failed) | Some(ContractOutcome::Cancelled))
+        })
+        .count();
+    resource_usage.insert("contracts_completed".into(), json!(contracts_closed_ok));
+    resource_usage.insert("contracts_failed".into(), json!(contracts_failed));
 
-    let mut timeline_row: HashMap<String, serde_json::Value> = HashMap::new();
-    timeline_row.insert("created".into(), json!(swarm.created_at.to_rfc3339()));
+    // Swarm timeline row.
+    let mut swarm_row: HashMap<String, serde_json::Value> = HashMap::new();
+    swarm_row.insert("kind".into(), json!("swarm"));
+    swarm_row.insert("created".into(), json!(swarm.created_at.to_rfc3339()));
     if let Some(ts) = swarm.activated_at {
-        timeline_row.insert("activated".into(), json!(ts.to_rfc3339()));
+        swarm_row.insert("activated".into(), json!(ts.to_rfc3339()));
     }
-    timeline_row.insert(
+    swarm_row.insert(
         "disbanded".into(),
         json!(swarm
             .disbanded_at
             .unwrap_or_else(chrono::Utc::now)
             .to_rfc3339()),
     );
+
+    // Contract timeline rows, sorted by created_at for a stable narrative.
+    let mut sorted_contracts: Vec<&ContractRecord> = contracts.iter().collect();
+    sorted_contracts.sort_by_key(|c| c.created_at);
+    let mut timeline: Vec<HashMap<String, serde_json::Value>> = Vec::with_capacity(1 + sorted_contracts.len());
+    timeline.push(swarm_row);
+    for c in sorted_contracts {
+        let mut row: HashMap<String, serde_json::Value> = HashMap::new();
+        row.insert("kind".into(), json!("contract"));
+        row.insert("contract_id".into(), json!(c.id));
+        row.insert("firm_id".into(), json!(c.firm_id));
+        row.insert("contracting_agent".into(), json!(c.contracting_agent));
+        row.insert("state".into(), json!(c.state));
+        if let Some(ref specialist) = c.routed_specialist_id {
+            row.insert("routed_specialist_id".into(), json!(specialist));
+        }
+        row.insert("created".into(), json!(c.created_at.to_rfc3339()));
+        if let Some(ts) = c.closed_at {
+            row.insert("closed".into(), json!(ts.to_rfc3339()));
+        }
+        if let Some(outcome) = c.outcome {
+            row.insert("outcome".into(), json!(outcome));
+        }
+        timeline.push(row);
+    }
 
     let objectives_met = if success {
         mission
@@ -541,7 +618,7 @@ fn generate_aar(swarm: &Swarm, mission: Option<&Mission>, agents: &[AgentRecord]
         lessons_learned: Vec::new(),
         agent_performance,
         resource_usage,
-        timeline: vec![timeline_row],
+        timeline,
         recommendations: Vec::new(),
         created_at: chrono::Utc::now(),
         metadata: HashMap::new(),
@@ -649,7 +726,7 @@ mod tests {
             ..Swarm::default()
         };
         let agents = vec![agent("one", RankEnum::GEN, MOSEnum::SfEngineer)];
-        let aar = generate_aar(&swarm, Some(&mission), &agents);
+        let aar = generate_aar(&swarm, Some(&mission), &agents, &[]);
         assert!(aar.success);
         assert_eq!(aar.objectives_met, vec!["Audit layout".to_string()]);
         assert!(aar.objectives_missed.is_empty());
@@ -657,6 +734,16 @@ mod tests {
         assert_eq!(
             aar.resource_usage.get("total_agents").and_then(|v| v.as_u64()),
             Some(1)
+        );
+        assert_eq!(
+            aar.resource_usage.get("total_contracts").and_then(|v| v.as_u64()),
+            Some(0)
+        );
+        // Exactly one timeline row (swarm, no contracts)
+        assert_eq!(aar.timeline.len(), 1);
+        assert_eq!(
+            aar.timeline[0].get("kind").and_then(|v| v.as_str()),
+            Some("swarm")
         );
     }
 
@@ -666,7 +753,7 @@ mod tests {
         mission.status = StatusEnum::Failed;
         mission.objective = "Hold the line".into();
         let swarm = Swarm::default();
-        let aar = generate_aar(&swarm, Some(&mission), &[]);
+        let aar = generate_aar(&swarm, Some(&mission), &[], &[]);
         assert!(!aar.success);
         assert_eq!(aar.objectives_missed, vec!["Hold the line".to_string()]);
         assert!(aar.objectives_met.is_empty());
@@ -675,9 +762,75 @@ mod tests {
     #[test]
     fn aar_handles_no_mission_at_all() {
         let swarm = Swarm::default();
-        let aar = generate_aar(&swarm, None, &[]);
+        let aar = generate_aar(&swarm, None, &[], &[]);
         assert!(!aar.success);
         assert_eq!(aar.mission_id, "unknown");
+    }
+
+    #[test]
+    fn aar_includes_contract_timeline_rows() {
+        let swarm = Swarm {
+            id: "s2".into(),
+            name: "beta".into(),
+            general_id: "g1".into(),
+            ..Swarm::default()
+        };
+        let agents = vec![agent("lead", RankEnum::CPT, MOSEnum::SfEngineer)];
+
+        let now = chrono::Utc::now();
+        let c1 = ContractRecord {
+            id: "c1".into(),
+            contracting_agent: "agent-lead".into(),
+            firm_id: "arena".into(),
+            routed_specialist_id: None,
+            state: ContractState::Closed,
+            brief: "first".into(),
+            mission_id: None,
+            priority: PriorityEnum::Routine,
+            created_at: now - chrono::Duration::minutes(10),
+            closed_at: Some(now - chrono::Duration::minutes(5)),
+            outcome: Some(ContractOutcome::Complete),
+            metadata: HashMap::new(),
+        };
+        let c2 = ContractRecord {
+            id: "c2".into(),
+            contracting_agent: "agent-lead".into(),
+            firm_id: "return42".into(),
+            routed_specialist_id: Some("morphlex".into()),
+            state: ContractState::Closed,
+            brief: "second".into(),
+            mission_id: None,
+            priority: PriorityEnum::Priority,
+            created_at: now - chrono::Duration::minutes(3),
+            closed_at: Some(now),
+            outcome: Some(ContractOutcome::Failed),
+            metadata: HashMap::new(),
+        };
+        let aar = generate_aar(&swarm, None, &agents, &[c2.clone(), c1.clone()]);
+
+        // swarm row + 2 contract rows
+        assert_eq!(aar.timeline.len(), 3);
+        assert_eq!(
+            aar.timeline[0].get("kind").and_then(|v| v.as_str()),
+            Some("swarm")
+        );
+        // Contracts sorted by created_at ascending, so c1 (older) first.
+        assert_eq!(
+            aar.timeline[1].get("contract_id").and_then(|v| v.as_str()),
+            Some("c1")
+        );
+        assert_eq!(
+            aar.timeline[2].get("contract_id").and_then(|v| v.as_str()),
+            Some("c2")
+        );
+        assert_eq!(
+            aar.resource_usage.get("contracts_completed").and_then(|v| v.as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            aar.resource_usage.get("contracts_failed").and_then(|v| v.as_u64()),
+            Some(1)
+        );
     }
 
     #[test]

@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 "tools": [
                                     {
                                         "name": "rr_roster",
-                                        "description": "List agents in a swarm with optional filters",
+                                        "description": "List agents (military + civilian) with optional class + filters",
                                         "inputSchema": {
                                             "type": "object",
                                             "properties": {
@@ -107,6 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                                 "status": {"type": "string"},
                                                 "rank": {"type": "string"},
                                                 "mos": {"type": "string"},
+                                                "class": {"type": "string", "enum": ["military","civilian","all"]},
                                             },
                                         },
                                     },

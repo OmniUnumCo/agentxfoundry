@@ -379,12 +379,32 @@ impl C2Router {
     // CASREP routing (escalation)
     // ------------------------------------------------------------------
 
-    /// Route a CASREP — escalate to the failed agent's commander.
+    /// Route a CASREP — escalate to the appropriate recipient.
+    ///
+    /// Military agents escalate to their `commander_id`.
+    ///
+    /// Civilians are outside the chain of command — they do not have a
+    /// commander. If the failed agent is a civilian, we look up the most
+    /// recent non-terminal contract addressed to them and escalate to that
+    /// contract's `contracting_agent` (military). This preserves the audit
+    /// chain: when a civilian fails, the military agent who hired them is
+    /// notified.
+    ///
+    /// If the civilian has no open contracts, `escalated_to` is `None`
+    /// and the CASREP is logged for later review.
     pub fn route_casrep(&mut self, casrep: CasRep) -> Result<bool> {
         self.casrep_log.push(casrep.clone());
 
-        let failed = (self.lookup)(&casrep.agent_id);
-        let escalate_to = failed.and_then(|a| a.commander_id);
+        let civilian = self.lookup_civilian(&casrep.agent_id);
+        let (escalate_to, escalation_kind) = if let Some(_civ) = civilian {
+            // Civilian failure -> escalate to contracting military agent.
+            let contracting_agent = self.latest_contracting_agent(&casrep.agent_id);
+            (contracting_agent, "contracting_agent")
+        } else {
+            // Military failure -> escalate to commander.
+            let failed = (self.lookup)(&casrep.agent_id);
+            (failed.and_then(|a| a.commander_id), "commander")
+        };
 
         if let Some(ref store) = self.state_store {
             let _ = store.append_event(
@@ -396,6 +416,7 @@ impl C2Router {
                     "error_message": casrep.error_message,
                     "task_id": casrep.task_id,
                     "escalated_to": escalate_to,
+                    "escalation_kind": escalation_kind,
                 }),
                 None,
                 Some(&casrep.agent_id),
@@ -403,6 +424,26 @@ impl C2Router {
         }
 
         Ok(true)
+    }
+
+    /// Find the most recently-created non-terminal contract addressed to the
+    /// given civilian id and return its `contracting_agent`. Returns `None`
+    /// if no matching contract exists or the state store is unavailable.
+    fn latest_contracting_agent(&self, civilian_id: &str) -> Option<String> {
+        let store = self.state_store.as_ref()?;
+        // Pull all open contracts for this firm / independent. `None` for
+        // state means "any", so we filter in-memory to exclude terminal
+        // states.
+        let all = store.list_contracts_by_firm(civilian_id, None).ok()?;
+        all.into_iter()
+            .filter(|c| {
+                !matches!(
+                    c.state,
+                    ContractState::Closed | ContractState::Rejected
+                )
+            })
+            .max_by_key(|c| c.created_at)
+            .map(|c| c.contracting_agent)
     }
 
     // ------------------------------------------------------------------
