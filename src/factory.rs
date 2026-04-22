@@ -60,6 +60,13 @@ pub type Result<T> = std::result::Result<T, AgentFactoryError>;
 /// ```
 pub struct AgentFactory {
     doctrine: Arc<dyn DoctrineLoader>,
+    /// Optional LLM client injected into every spawned `RRAgent`.
+    ///
+    /// When present, `RRAgent::execute_task` on any agent produced by this
+    /// factory will call the LLM directly. When absent, `execute_task`
+    /// returns `LLMNotAvailable` and callers must use
+    /// [`crate::swarm_orchestrator::SwarmOrchestrator`] instead.
+    llm: Option<Arc<dyn crate::traits::LLMClient>>,
     registry: HashMap<String, RRAgent>,
     counter: AtomicUsize,
     total_spawned: usize,
@@ -69,10 +76,25 @@ impl AgentFactory {
     pub fn new(doctrine: Arc<dyn DoctrineLoader>) -> Self {
         Self {
             doctrine,
+            llm: None,
             registry: HashMap::new(),
             counter: AtomicUsize::new(1),
             total_spawned: 0,
         }
+    }
+
+    /// Inject an LLM client that every subsequently-spawned agent will
+    /// receive. Existing agents in the registry are NOT back-filled — call
+    /// this before any `spawn_*` invocations for whole-swarm LLM coverage.
+    pub fn with_llm(mut self, llm: Arc<dyn crate::traits::LLMClient>) -> Self {
+        self.llm = Some(llm);
+        self
+    }
+
+    /// Returns true if the factory will inject an LLM into newly-spawned
+    /// agents. Primarily for diagnostics / tests.
+    pub fn has_llm(&self) -> bool {
+        self.llm.is_some()
     }
 
     // ------------------------------------------------------------------
@@ -104,7 +126,7 @@ impl AgentFactory {
             unit_id,
             swarm_id,
             Some(agent_id),
-            None,
+            self.llm.clone(),
         );
         let agent_id_clone = agent.id.clone();
 

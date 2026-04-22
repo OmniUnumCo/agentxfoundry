@@ -356,3 +356,81 @@ fn factory_deactivate() {
     assert!(deactivated.is_some());
     assert_eq!(factory.all_agents().len(), 1);
 }
+
+// ============================================================================
+// LLM injection: RRAgent::execute_task with and without a wired LLM
+// ============================================================================
+
+use async_trait::async_trait;
+use rr::traits::LLMClient;
+
+struct EchoLLM;
+
+#[async_trait]
+impl LLMClient for EchoLLM {
+    async fn complete(
+        &self,
+        prompt: &str,
+        _tier: &str,
+        _max_tokens: Option<usize>,
+        _temperature: Option<f64>,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(format!("echo: {} chars", prompt.chars().count()))
+    }
+}
+
+#[tokio::test]
+async fn execute_task_fails_without_llm_when_factory_has_none() {
+    let doctrine = make_doctrine_loader();
+    let mut factory = AgentFactory::new(doctrine);
+    let general = factory.spawn_general(None, None);
+    let mut agent = factory.spawn_specialist(
+        MOSEnum::Infantry,
+        general.id.clone(),
+        None,
+        None,
+    );
+
+    let task = Task {
+        id: "t1".into(),
+        description: "audit something".into(),
+        ..Task::default()
+    };
+    let err = agent.execute_task(task).await.unwrap_err();
+    assert!(matches!(
+        err,
+        rr::agent::RRAgentError::LLMNotAvailable
+    ));
+}
+
+#[tokio::test]
+async fn execute_task_succeeds_when_factory_has_llm() {
+    let doctrine = make_doctrine_loader();
+    let llm: Arc<dyn LLMClient> = Arc::new(EchoLLM);
+    let mut factory = AgentFactory::new(doctrine).with_llm(llm);
+    let general = factory.spawn_general(None, None);
+    let mut agent = factory.spawn_specialist(
+        MOSEnum::Infantry,
+        general.id.clone(),
+        None,
+        None,
+    );
+
+    let task = Task {
+        id: "t1".into(),
+        description: "audit the layout".into(),
+        ..Task::default()
+    };
+    let result = agent.execute_task(task).await.unwrap();
+    assert_eq!(result.status, StatusEnum::Complete);
+    let text = result.result.expect("LLM result populated");
+    assert!(text.starts_with("echo: "));
+}
+
+#[test]
+fn factory_has_llm_reflects_injection() {
+    let doctrine = make_doctrine_loader();
+    assert!(!AgentFactory::new(doctrine.clone()).has_llm());
+    let llm: Arc<dyn LLMClient> = Arc::new(EchoLLM);
+    assert!(AgentFactory::new(doctrine).with_llm(llm).has_llm());
+}

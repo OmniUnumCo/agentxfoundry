@@ -179,4 +179,27 @@ mod tests {
         let r = LlmRouter::new(RouterConfig::default());
         assert!(r.route("bogus").is_none());
     }
+
+    #[test]
+    fn shipped_config_file_parses_and_covers_all_tiers() {
+        // Regression guard: if config/llm.toml drifts into an unparseable
+        // shape or loses a tier, this test fails at build time rather than
+        // at daemon startup.
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let path = Path::new(&manifest).join("config").join("llm.toml");
+        let router = LlmRouter::load_from_file(&path).expect("config/llm.toml parses");
+        for tier in &[
+            "strategic",
+            "tactical",
+            "supervision",
+            "execution_guidance",
+            "execution",
+        ] {
+            assert!(
+                router.route(tier).is_some(),
+                "tier `{}` missing from shipped config",
+                tier
+            );
+        }
+    }
 }

@@ -1,0 +1,108 @@
+# Rational Reserve LLM router configuration.
+#
+# Loaded by `LlmRouter::from_env_or_default()` when `RR_LLM_CONFIG_PATH`
+# points here. If that env var is unset AND this file is not in one of the
+# default locations, the router falls back to compiled-in defaults (all
+# tiers -> local Ollama, model llama3.2:3b).
+#
+# Every section maps one of RR's five logical tiers to a concrete
+# (provider, model) pair. Tiers are selected at call time based on the
+# agent's rank via `tier_for_rank`:
+#
+#   Rank               -> Tier
+#   GEN, COL           -> strategic
+#   MAJ, CPT           -> tactical
+#   LT, SGM            -> supervision
+#   MSG, SGT, CPL      -> execution_guidance
+#   SPC, PFC, PVT      -> execution
+#
+# Civilians resolve via `tier_for_civilian`:
+#   Firm               -> tactical
+#   Specialist/Indep.  -> execution_guidance (override via doctrine frontmatter)
+#
+# Provider values: "ollama" | "anthropic" | "openai_compat" | "google" | "kimi" | "onnx"
+# Each tier may override base_url and seed. API keys are read from
+# environment variables at daemon startup:
+#
+#   OLLAMA_HOST                  (default http://localhost:11434)
+#   ANTHROPIC_API_KEY
+#   OPENAI_API_KEY  / GROQ_API_KEY / MISTRAL_API_KEY / KIMI_API_KEY / QWEN_API_KEY
+#   GOOGLE_API_KEY
+#   MOONSHOT_API_KEY (alias for KIMI_API_KEY)
+#
+# To activate this file, set:
+#   export RR_LLM_CONFIG_PATH=$PWD/config/llm.toml
+
+[tiers.strategic]
+# Generals and Colonels. Highest-authority decisions.
+# Local default keeps determinism on; swap to Claude for richer strategic reasoning.
+provider = "ollama"
+model    = "llama3.1:8b-instruct"
+base_url = "http://localhost:11434"
+seed     = 0
+
+# [tiers.strategic]
+# provider = "anthropic"
+# model    = "claude-sonnet-4-20250514"
+
+[tiers.tactical]
+# Majors and Captains + civilian FIRMS.
+provider = "ollama"
+model    = "llama3.1:8b-instruct"
+base_url = "http://localhost:11434"
+seed     = 0
+
+[tiers.supervision]
+# Lieutenants and Sergeant Majors.
+provider = "ollama"
+model    = "qwen2.5-coder:7b"
+base_url = "http://localhost:11434"
+seed     = 0
+
+[tiers.execution_guidance]
+# NCOs + civilian SPECIALISTS / INDEPENDENTS.
+provider = "ollama"
+model    = "qwen2.5-coder:7b"
+base_url = "http://localhost:11434"
+seed     = 0
+
+[tiers.execution]
+# Enlisted ranks. Smallest + fastest model.
+provider = "ollama"
+model    = "llama3.2:3b"
+base_url = "http://localhost:11434"
+seed     = 0
+
+# -----------------------------------------------------------------------------
+# Alternative configurations (uncomment to use)
+# -----------------------------------------------------------------------------
+
+# OpenAI for high-authority tiers:
+# [tiers.strategic]
+# provider = "openai_compat"
+# model    = "gpt-4o"
+# base_url = "https://api.openai.com/v1"
+# seed     = 0
+
+# Groq (OpenAI-compat, very fast):
+# [tiers.tactical]
+# provider = "openai_compat"
+# model    = "llama-3.1-70b-versatile"
+# base_url = "https://api.groq.com/openai/v1"
+# seed     = 42
+
+# Gemini:
+# [tiers.supervision]
+# provider = "google"
+# model    = "gemini-2.0-flash"
+
+# Kimi (Moonshot AI, Chinese-language strong, OpenAI-compat):
+# [tiers.execution_guidance]
+# provider = "kimi"
+# model    = "moonshot-v1-128k"
+
+# Mistral (OpenAI-compat):
+# [tiers.execution]
+# provider = "openai_compat"
+# model    = "mistral-large-latest"
+# base_url = "https://api.mistral.ai/v1"

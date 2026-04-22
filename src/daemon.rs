@@ -115,9 +115,6 @@ impl Daemon {
             Box::new(move || doctrine_clone.version().to_string()),
         )?;
 
-        // Factory
-        let factory = AgentFactory::new(Arc::new(doctrine.clone()));
-
         // Logger
         let logger = JsonlLogger::new(paths.log_file())?;
 
@@ -128,6 +125,10 @@ impl Daemon {
         let cache = Arc::new(ResponseCache::open(&paths.state_dir.join("llm_cache.db"))?);
         let llm: Arc<dyn LLMClient> =
             build_llm_from_router(&router, cache, &config.paths)?;
+
+        // Factory — with the LLM injected so RRAgent::execute_task works on
+        // every spawned agent without the caller having to wire it manually.
+        let factory = AgentFactory::new(Arc::new(doctrine.clone())).with_llm(llm.clone());
 
         let state = DaemonState::new(factory, doctrine, state_store, logger, llm, router);
 
