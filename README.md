@@ -2,212 +2,275 @@
 
 > *"Many minds, one mission."*
 
-Military-hierarchy AI swarm orchestration -- a shared substrate for coordinating multi-agent work from **any** coding agent you use (Claude Code, Codex CLI, Qwen-Code, OpenCode, Mistral Vibe).
+Deterministic, compiled Rust for multi-agent orchestration. Ships as three
+binaries — a singleton daemon (`rr-daemon`), an MCP stdio shim
+(`rr-mcp`), and an HTTP server (`rr-http`) — all operating against one
+local state store.
 
-## What this is
+Designed to be invoked from any MCP-capable coding agent (Claude Code,
+Codex CLI, Qwen-Code, OpenCode, Mistral Vibe) and from plain HTTP
+clients alike.
 
-Rational Reserve (RR) models complex task execution after a military command structure: agents hold military ranks (General -> Specialist) and Military Occupational Specialties (MOS: Combat Engineer, Intelligence Analyst, Cavalry Scout, ...). Missions are decomposed and routed through a chain of command. Status flows back up as SITREPs; adjustments flow down as FRAGOs; failures surface as CASREPs; completed missions generate After-Action Reviews.
+## Thesis
 
-Alongside the military hierarchy, RR also supports a parallel **Civilian Reserve (CR)** class of project-specialized contractors that military agents hire for domain-specific work (see the [Civilian Reserve](#civilian-reserve-cr) section below).
+Every LLM call in Rational Reserve goes through
+[`DeterministicLLMClient`](docs/modules/llm-substrate/DESIGN.md):
+`temperature=0` is forced, a seed is threaded where the provider
+supports it, and responses are cached by BLAKE3 content hash so
+repeated calls replay byte-identically. Every prompt is built from
+frontmatter-parsed doctrine files with stable ordering — no
+timestamps, no UUIDs, no HashMap-iteration drift. Every orchestration
+decision — mission planning, task assignment, specialist routing — is
+deterministic or explicitly LLM-backed with the LLM wrapped.
 
-This repository is a **deterministic, compiled Rust implementation**. Every agent, router, loader, and handler is statically linked; there is no interpreted runtime in the hot path. Designed from day one to be invoked from any MCP-capable coding agent, sharing a single local state store.
+The net effect: given a cold cache and a running local Ollama,
+two identical calls produce identical output on the first run and
+skip the network entirely on the second.
 
-## Architecture in one diagram
+## Two agent classes
 
-```
-+------------------------------------------+
-|  Host agents (Claude Code, Codex, Qwen,  |
-|  OpenCode, Mistral Vibe, ...)            |
-+---------------+--------------------------+
-                | MCP stdio (JSON-RPC)
-+---------------v--------------------------+
-|  src/bin/rr_mcp.rs -- stdio shim         |
-+---------------+--------------------------+
-                | unix socket (line-JSON)
-+---------------v--------------------------+
-|  src/bin/rr_daemon.rs + src/daemon.rs    |
-|  -- singleton daemon + dispatch          |
-+---+----------+---------+---------+-------+
-    |          |         |         |
-    v          v         v         v
- models.rs  persistence c2_router doctrine
- traits.rs  (SQLite WAL)  (chain   (markdown
- agent.rs                 of cmd   + civilian
- factory.rs               + contr) YAML front-
-                                   matter)
-```
+**Military.** Rank + MOS + chain-of-command. Generals give orders,
+Specialists execute them, SITREPs flow up, FRAGOs flow down,
+failures escalate as CASREPs, finished missions emit AARs.
 
-- **`src/`** -- core Rust library. Pure business logic behind `Send + Sync` trait boundaries (`DoctrineLoader`, `StateStore`, `LLMClient`, `Clock`, `EventLogger`). No networking, no SQLite, no LLM imports inside the `lib` crate -- all concrete implementations are injected.
-- **`src/persistence.rs`** -- `SqliteStateStore` with WAL journal mode + append-only event log + projection tables for agents, swarms, missions, **civilians**, and **contracts**.
-- **`src/daemon.rs` + `src/bin/rr_daemon.rs`** -- the singleton daemon. Binds a unix socket at `~/.rational-reserve/run/rr.sock`, dispatches line-delimited JSON-RPC, is the *one and only* writer to the event log.
-- **`src/bin/rr_mcp.rs`** -- the MCP stdio shim. Each host agent spawns its own shim subprocess; all shims connect to the single daemon. This is how N concurrent hosts share one state store without corrupting SQLite.
+**Civilian Reserve.** Project-specialized contractors that military
+agents *hire* for domain expertise. They live outside the chain of
+command — they cannot be ordered, only contracted. Contracts address
+*firms* (umbrella civilians); firms route internally to their
+specialists via a deterministic keyword-rule broker. Full design:
+[docs/modules/civilian-reserve/](docs/modules/civilian-reserve/DESIGN.md).
 
-All state mutations flow through the daemon. The event log is the source of truth; projection tables are derived.
-
-## Civilian Reserve (CR)
-
-Civilian Reserve contractors are a separate class of agents from military MOS ranks. They are project-specialized domain experts that military agents *contract* for work outside their MOS wheelhouse.
-
-### Structure
-
-- **Firms** -- umbrella civilians with internal specialists. Military agents always address the firm; the firm routes work to the right specialist internally.
-- **Specialists** -- members of a firm; cannot be contracted directly.
-- **Independents** -- flat civilians with a single scope; contracted the same way as a firm.
-
-Civilians live outside the chain of command. They have no `commander_id`, no subordinates, and cannot be ordered via `route_order`. Military agents interact with them exclusively through `route_contract_request`.
-
-### Contract lifecycle
+## Architecture
 
 ```
-requested -> accepted | rejected
-accepted  -> in_progress  (implicit on first CONTRACT_SITREP)
-in_progress -> closed
++-----------------+  +------------------+   +-----------------+
+| Host agents     |  | Browsers / tools |   | CI / operators  |
+| (Claude Code,   |  | (REST clients)   |   | (direct socket) |
+| Codex, Qwen,..) |  +--------+---------+   +--------+--------+
++--------+--------+           |                      |
+         | MCP stdio          | HTTP                 | unix socket
+         v                    v                      v
++-----------------+  +------------------+   +-----------------+
+| rr-mcp shim     |  | rr-http (axum)   |   | rr-daemon       |
++--------+--------+  +--------+---------+   +--------+--------+
+         |                    |                      |
+         +--------+-----------+-----------+----------+
+                  |
+                  v
++------------------------------------------------------------+
+|  DaemonState                                               |
+|  state_store | doctrine | llm | router | factory | logger  |
++--+------+--------+------+------+------+---------+----------+
+   |      |        |      |      |      |
+   v      v        v      v      v      v
+ models  persis-  c2_    doctrine llm/ swarm_orchestrator
+  and     tence   router           broker  mission_planner
+ traits  (SQLite  (chain  (YAML    (tier  predictive
+         WAL +    of cmd  front-   router general_mind
+         civil+   + contr matter   + 4    vectordb
+         contr)   + civ    + slug   prov-
+                  refuse)  validat- iders)
+                           ion)
 ```
 
-Every state transition appends a typed event (`CONTRACT_REQUESTED`, `CONTRACT_ACCEPTED`, `CONTRACT_REJECTED`, `CONTRACT_SITREP`, `CONTRACT_CLOSEOUT`) and updates the `contracts` projection row. Registration events (`CIVILIAN_REGISTERED`, `FIRM_REGISTERED`) bootstrap a civilian from its doctrine file.
+All state mutations flow through the daemon. The event log is the
+source of truth; projection tables (`agents`, `swarms`, `missions`,
+`civilians`, `contracts`) are derived.
 
-### Doctrine layout
+## Binaries
 
-```
-doctrine/
-+-- VERSION                 # military doctrine semver
-+-- ranks/                  # GEN.md, Colonel.md, ... (military)
-+-- mos/                    # 11b-infantry.md, 12b-combat-engineer.md, ...
-+-- protocols/              # sitrep.md, frago.md, ...
-+-- civilian/
-    +-- VERSION             # civilian doctrine semver (independent of military)
-    +-- flat/
-    |   +-- arena.md        # flat/independent civilians
-    +-- firms/
-        +-- return42/
-        |   +-- firm.md
-        |   +-- specialist-morphlex.md
-        |   +-- specialist-jasterish.md
-        +-- pitchfork/
-            +-- firm.md
-            +-- specialist-*.md
+```bash
+cargo build --release
+#   target/release/rr-daemon
+#   target/release/rr-mcp
+#   target/release/rr-http
 ```
 
-Each civilian doctrine file is markdown with a frontmatter header:
+| Binary | Transport | Where |
+|---|---|---|
+| `rr-daemon` | unix socket (line-JSON RPC) | `~/.rational-reserve/run/rr.sock` |
+| `rr-mcp` | stdio subprocess (MCP) | spawned per host agent |
+| `rr-http` | TCP (axum) | `RR_HTTP_BIND`, default `127.0.0.1:8787` |
 
-```yaml
----
-slug: arena
-kind: independent        # firm | specialist | independent
-firm: null               # required iff kind=specialist
-project_path: ~/Projects/arena
-upstream_url: null
-languages: [rust]
-tier_override: null      # or: strategic|tactical|supervision|execution_guidance|execution
-contract_scope: [multi-agent-consensus, drift-detection, ...]
----
+All three serve the same `DaemonState`. A mission created over HTTP
+is visible to MCP clients and vice versa; `rr-daemon` is the
+single writer to the event log.
 
-# CR-Arena
+## LLM provider matrix
 
-## Scope
-## Core competencies
-## When to contract this specialist
-## Out of scope
-## Deliverables
-## Execution guidance
-```
+Eleven providers covered by four Rust clients:
 
-Slugs are validated against a strict allowlist (`[a-z0-9][a-z0-9_-]{0,63}`) before any filesystem access; paths are canonicalized and verified to remain within the doctrine root as defense in depth against CWE-22.
+| Client | Provider | Models (examples) |
+|---|---|---|
+| `OllamaClient` | Ollama (local) | `llama3.2:3b`, `qwen2.5-coder:7b`, any pulled model |
+| | Llama-family via Ollama | `llama3:latest`, `llama3.1:8b-instruct` |
+| | DeepSeek-cloud via Ollama | `deepseek-v3.1:671b-cloud` |
+| | Qwen-cloud via Ollama | `qwen3-coder:480b-cloud` |
+| `AnthropicClient` | Anthropic Claude | `claude-sonnet-4-20250514` |
+| `OpenAiCompatClient` | OpenAI | `gpt-4o`, `gpt-4` |
+| | Groq | `llama-3.1-70b-versatile`, `mixtral-8x7b-32768` |
+| | Mistral / Devstral | `mistral-large`, `devstral-small` |
+| | Kimi / Kimi Coder (Moonshot) | `moonshot-v1-128k`, `kimi-k1-8k` |
+| | Qwen Coder | `qwen-coder-plus` |
+| `GoogleClient` | Google Gemini | `gemini-2.0-flash`, `gemini-pro` |
 
-### Reserve roster (planned)
+Routing is tier-driven. A [`config/llm.toml`](config/llm.toml) template
+ships with the repo; override with `RR_LLM_CONFIG_PATH`. Every tier
+(`strategic` / `tactical` / `supervision` / `execution_guidance` /
+`execution`) can point at any provider / model. API keys come from
+env: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`,
+`MISTRAL_API_KEY`, `KIMI_API_KEY`, `QWEN_API_KEY`, `GOOGLE_API_KEY`,
+`OLLAMA_HOST`.
 
-**Firms:** CR-Pitchfork, CR-DeveloperPortal, CR-KnockoutEDA, CR-Return42, CR-MAB.
-**Flat civilians:** CR-Arena (shipped), CR-BTCWallet, CR-OpenChoreo.
+## Civilian Reserve roster
+
+| Kind | Slug | Source |
+|---|---|---|
+| Independent | [`arena`](doctrine/civilian/flat/arena.md) | `~/Projects/arena` |
+| Independent | [`btcwallet`](doctrine/civilian/flat/btcwallet.md) | upstream btcsuite |
+| Independent | [`openchoreo`](doctrine/civilian/flat/openchoreo.md) | upstream WSO2 |
+| Firm | [`pitchfork`](doctrine/civilian/firms/pitchfork/firm.md) | Settlement-Contract, ZK-KYC, VPS-Isolation, BTC-Custody |
+| Firm | [`developer-portal`](doctrine/civilian/firms/developer-portal/firm.md) | Backstage, Gitea, k3d, OpenChoreo-M3-Prep |
+| Firm | [`knockout-eda`](doctrine/civilian/firms/knockout-eda/firm.md) | 9 statistical workflows |
+| Firm | [`return42`](doctrine/civilian/firms/return42/firm.md) | Morphlex, Jasterish, Custom-LLM |
+| Firm | [`mab`](doctrine/civilian/firms/mab/firm.md) | Multimodal-IO, MOA-Reasoning, Recursive-Loop-Closure, Multi-LLM-Adapter |
+
+32 doctrine files total (3 flat + 5 firms + 24 specialists).
+
+## MCP tool surface
+
+Listed by `rr-mcp` on `tools/list`:
+
+**Military:**
+- `rr_roster` — list agents (military + civilian) with class + rank + MOS filters
+- `rr_deploy_swarm` — deploy a new swarm (single / fire_team / squad / platoon)
+- `rr_status` — live status projection for a swarm
+- `rr_execute_mission` — plan -> assign -> execute DAG
+- `rr_disband` — disband + AAR with contract timelines
+
+**Civilian Reserve:**
+- `cr_register_civilian` — register a civilian from its doctrine file
+- `cr_list_civilians` — list all registered civilians
+- `cr_firm_detail` — inspect a firm (doctrine + specialists + routing rules + open contracts)
+- `cr_contract_request` — initiate a contract (military -> firm)
+- `cr_contract_accept` — firm-side: accept + assign to specialist
+- `cr_contract_sitrep` — submit progress (implicit Accepted -> InProgress on first call)
+- `cr_contract_closeout` — close with outcome + deliverables
+- `cr_execute_contract` — build prompt from doctrine + brief, call LLM, record SITREP, auto-close
+
+## HTTP surface
+
+Exposed by `rr-http` (axum):
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | service identity |
+| `POST` | `/mission/create` | create mission + swarm |
+| `POST` | `/swarm/{swarm_id}/execute` | plan + assign + run |
+| `GET` | `/swarm/{swarm_id}/status` | live projection |
+| `POST` | `/swarm/{swarm_id}/disband` | disband + AAR |
+| `GET` | `/swarms` | list all swarms |
+| `GET` | `/stats` | event + swarm + civilian counts |
+| `GET` | `/agents/roster` | full agent list |
+| `POST` | `/mission/quick` | create + execute in one call |
 
 ## State lives in `~/.rational-reserve/`
 
 ```
 ~/.rational-reserve/
-+-- state/rr.db            # SQLite WAL: event log + current_state projection
-+-- run/rr.pid             # Daemon PID
-+-- run/rr.sock            # Unix socket for MCP shims
-+-- logs/c2.jsonl          # Structured JSONL log stream
-+-- doctrine/              # Version-pinned doctrine (copy of source)
-+-- config.toml            # Optional: LLM keys, rank-to-LLM overrides (v0.3)
++-- state/rr.db            # SQLite WAL: events + projections
++-- state/llm_cache.db     # BLAKE3-keyed response cache
++-- run/rr.pid             # daemon PID
++-- run/rr.sock            # unix socket
++-- logs/c2.jsonl          # structured JSONL event log
++-- doctrine/              # version-pinned doctrine copy
 ```
 
-The `doctrine_version` field stamped on every event row is formatted as `mil-<X.Y.Z>+civ-<A.B.C>` so military and civilian doctrine can evolve independently while still pinning exact reproducibility per event.
-
-## MCP tool surface
-
-The stdio shim registers the following tools:
-
-**Military:**
-- `rr_roster` -- list agents with optional filters
-- `rr_deploy_swarm` -- deploy a new swarm (single/fire_team/squad/platoon)
-- `rr_status` -- live status projection for a swarm
-
-**Civilian Reserve:**
-- `cr_register_civilian` -- register a civilian from its doctrine file
-- `cr_list_civilians` -- list all registered civilians
-- `cr_contract_request` -- initiate a contract (military -> firm)
-- `cr_contract_sitrep` -- submit progress (implicit Accepted->InProgress on first call)
-- `cr_contract_closeout` -- close a contract with outcome + deliverables
-
-## Optional guard layers
-
-The repo also contains an **optional**, user-scoped guard layer under `tools/guards/`.
-This is separate from the RR daemon and is meant for local audit of new listeners and
-launchd persistence changes around agent experiments.
-
-The replacement guard design is intentionally conservative:
-
-- runs as **user LaunchAgents**, not root `LaunchDaemons`
-- uses `launchd` `StartInterval` scheduling instead of a hot shell loop
-- defaults to **audit-first** logging
-- never targets Apple/system processes
-- only enforces against explicit user-owned targets from inside `$HOME`
-
-See `docs/guards.md` and `adapters/install-guards.sh`.
-
-There is also a separate **system integrity daemon v2** design under
-`tools/system-guard/`. That package is aimed at the broader "system integrity daemon"
-scope:
-
-- system-wide visibility
-- root daemon deployment
-- audit-first findings in SQLite + JSONL
-- explicit trust policy
-- staged rollout before any enforcement
-
-See `docs/system-integrity-daemon.md`.
-
-## Status
-
-**v0.1 -- Spine** (in progress): core Rust library, SQLite persistence, daemon, MCP stdio shim with `rr_roster` / `rr_deploy_swarm` / `rr_status`. Agents are inert records; no LLM execution yet.
-
-**Civilian Reserve Slice A** (shipped): `AgentClass` / `CivilianTier` / `CivilianRecord` / `AnyAgent` model additions, `civilians` + `contracts` projection tables, new event types, civilian refusal in C2 router, `route_contract_request`, YAML-frontmatter doctrine loader, 5 new MCP tools, CR-Arena reference doctrine, end-to-end integration test.
-
-**Civilian Reserve Slice B** (next): firms with specialists, `ContractBroker` firm-internal routing, CR-Return42 + Morphlex specialist authored.
-
-**v0.2 -- Adapter layer**: portable `SKILL.md` pack + per-host primers + `install.sh`. Proves parity across all 5 target agents.
-
-**v0.3** (follow-up spec): LLM routing, `rr_execute_mission`, SITREP/FRAGO/CASREP flows.
-**v0.4** (follow-up spec): AAR engine, `rr_disband`, Claude Code plugin.
+`doctrine_version` stamped on every event row is
+`mil-<X.Y.Z>+civ-<A.B.C>` — military and civilian doctrine evolve
+independently while keeping exact per-event reproducibility.
 
 ## Development
 
 ```bash
-# Build
+# Build all three binaries
 cargo build --release
 
-# Run the full test suite
+# Run every test (including docs; ignores 3 live-Ollama tests by default)
 cargo test
 
-# Start the daemon in the foreground (development)
+# Full determinism + E2E sweep (requires local Ollama + a pulled model)
+#   brew install ollama && ollama serve &
+#   ollama pull llama3.2:3b
+cargo test --test test_live_ollama -- --ignored
+
+# Start the daemon (foreground, dev)
 cargo run --bin rr-daemon
 
-# Drive the MCP shim manually
+# Drive the MCP shim (spawned automatically by host agents)
 cargo run --bin rr-mcp
+
+# Serve the HTTP surface
+RR_HTTP_BIND=127.0.0.1:8787 cargo run --bin rr-http
+
+# Use a specific LLM config
+RR_LLM_CONFIG_PATH=$PWD/config/llm.toml cargo run --bin rr-daemon
 ```
 
-All three daemon <-> shim paths use line-delimited JSON over a unix socket; see `src/daemon.rs::dispatch` for the method catalog.
+## Module documentation
+
+Every subsystem has Requirements + Design + Technical docs per
+project standard:
+
+- [Civilian Reserve](docs/modules/civilian-reserve/)
+- [Deterministic LLM Substrate](docs/modules/llm-substrate/)
+- [Mission Orchestration](docs/modules/mission-orchestration/)
+- [Predictive Agent](docs/modules/predictive-agent/)
+- [HTTP Surface](docs/modules/http-surface/)
+
+See [docs/modules/README.md](docs/modules/README.md) for the index
+and cross-subsystem dependency map.
+
+## Optional guard layers
+
+Separate, opt-in integrity-scanning utilities live under `tools/`.
+They are not part of the RR daemon and do not share its state:
+
+- `tools/guards/` — user-scoped LaunchAgents for listener /
+  persistence audit. See [docs/guards.md](docs/guards.md).
+- `tools/system-guard/` — system-wide integrity daemon design (audit-
+  first, staged rollout). See [docs/system-integrity-daemon.md](docs/system-integrity-daemon.md).
+
+## Status
+
+**Shipped:**
+- Core Rust library (models, traits, persistence, C2 router, doctrine,
+  factory, daemon, MCP shim)
+- Civilian Reserve: class model, firm/specialist hierarchy, deterministic
+  broker, contract lifecycle, 8 MCP tools, 32 authored civilian
+  doctrine files
+- Deterministic LLM substrate: 4 clients covering 11 providers,
+  content-addressed cache, tier router, config/llm.toml example
+- Mission orchestration: all 5 General-Mind prompt modes,
+  plan/adapt/predict, execute-mission DAG walker, disband + AAR
+  with contract timelines
+- Predictive agent: closed-form OLS forecaster + multi-LLM ensemble
+  (deterministic replacement for the Python LSTM)
+- HTTP surface: 8 axum endpoints, `rr-http` binary
+- Live-Ollama E2E tests (ignored by default; run explicitly)
+- 158 tests passing, 3 live-Ollama ignored, zero failures
+
+**Deferred:**
+- ONNX Runtime provider (in-process pinned-weights inference)
+- LanceDB persistent vector store (BruteForceStore is the default)
+- Retrieval-augmented prompt assembly
+- Streaming LLM responses
+- PostgreSQL persistence (SQLite is the default; Python prototype
+  used PG)
 
 ---
 
-*Rational Reserve is a work in progress. Interfaces are versioned via doctrine files; the daemon's unix-socket protocol is considered an internal surface until v1.0.*
+*Interfaces are versioned via doctrine files; the daemon's
+unix-socket JSON-RPC protocol is considered an internal surface
+until v1.0. See [docs/modules/](docs/modules/) for authoritative
+subsystem specs.*
