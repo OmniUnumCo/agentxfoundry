@@ -13,7 +13,10 @@
 //! planner must either produce a parseable plan or surface the failure to the
 //! caller — silent degradation hides bugs.
 
-use crate::general_mind::{mission_decomposition_prompt, PromptContext};
+use crate::general_mind::{
+    mission_decomposition_prompt, predictive_engine_prompt, reactive_complex_prompt,
+    PromptContext,
+};
 use crate::models::{Mission, StatusEnum, Task};
 use crate::traits::LLMClient;
 use serde::Deserialize;
@@ -188,6 +191,157 @@ impl MissionPlanner {
         }
         Ok(plan.tasks.into_iter().map(|t| to_task(t, mission_id)).collect())
     }
+
+    /// Adapt an in-flight plan in response to a detected change (REACTIVE
+    /// COMPLEX protocol).
+    ///
+    /// Builds a reactive-complex prompt with the current task breakdown, asks
+    /// the LLM for an updated plan, and parses the response as the same
+    /// `{"tasks":[...]}` schema used by [`Self::plan_mission`].
+    ///
+    /// If the LLM's adaptation is malformed, the call fails loud -- we do
+    /// not silently return the current tasks, because "adapted plan returned
+    /// successfully" and "original plan retained" are semantically different
+    /// states the caller must distinguish.
+    pub async fn adapt_plan(
+        &self,
+        mission: &Mission,
+        current_tasks: &[Task],
+        change_detected: &str,
+    ) -> Result<Vec<Task>, PlanError> {
+        // Render a stable current-state snapshot for the prompt context.
+        let mut state = PromptContext::new();
+        state.insert("mission".into(), mission.objective.clone());
+        state.insert("change".into(), change_detected.to_string());
+        state.insert(
+            "tasks_complete".into(),
+            task_count_by_status(current_tasks, StatusEnum::Complete).to_string(),
+        );
+        state.insert(
+            "tasks_engaged".into(),
+            task_count_by_status(current_tasks, StatusEnum::Engaged).to_string(),
+        );
+        state.insert(
+            "tasks_standby".into(),
+            task_count_by_status(current_tasks, StatusEnum::Standby).to_string(),
+        );
+        state.insert(
+            "tasks_failed".into(),
+            task_count_by_status(current_tasks, StatusEnum::Failed).to_string(),
+        );
+
+        let prompt = reactive_complex_prompt(&mission.objective, &state, Some(change_detected));
+        let response = self
+            .llm
+            .complete(&prompt, "strategic", Some(4096), Some(0.0))
+            .await
+            .map_err(PlanError::LlmFailure)?;
+        Self::parse_plan(&response, &mission.id)
+    }
+
+    /// Predict future execution states (PREDICTIVE ENGINE protocol).
+    ///
+    /// Unlike `plan_mission` / `adapt_plan`, the predictive output is not a
+    /// task list -- it's free-form strategic foresight. We capture it as a
+    /// [`Prediction`] wrapper so callers can attach it to mission metadata
+    /// or record it as an event payload.
+    pub async fn predict_execution(
+        &self,
+        mission: &Mission,
+        current_tasks: &[Task],
+        swarm_status: &PromptContext,
+        horizon_depth: u8,
+    ) -> Result<Prediction, PlanError> {
+        let mut trajectory = PromptContext::new();
+        trajectory.insert("mission".into(), mission.objective.clone());
+        trajectory.insert(
+            "progress".into(),
+            format!("{:.2}", calculate_progress(current_tasks)),
+        );
+        trajectory.insert(
+            "velocity_tasks_per_hour".into(),
+            format!("{:.2}", calculate_velocity(current_tasks)),
+        );
+        trajectory.insert(
+            "blockers".into(),
+            current_tasks
+                .iter()
+                .filter_map(|t| {
+                    if matches!(t.status, StatusEnum::Failed) {
+                        Some(t.description.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("; "),
+        );
+        for (k, v) in swarm_status {
+            trajectory.insert(format!("swarm.{}", k), v.clone());
+        }
+
+        let prompt = predictive_engine_prompt(&mission.objective, &trajectory, horizon_depth);
+        let response = self
+            .llm
+            .complete(&prompt, "strategic", Some(4096), Some(0.0))
+            .await
+            .map_err(PlanError::LlmFailure)?;
+        Ok(Prediction {
+            mission_id: mission.id.clone(),
+            horizon_depth,
+            raw: response,
+        })
+    }
+}
+
+/// Free-form output of `predict_execution`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Prediction {
+    pub mission_id: String,
+    pub horizon_depth: u8,
+    /// The raw LLM response. Deliberately kept as text: predictive outputs
+    /// are narrative, not structured.
+    pub raw: String,
+}
+
+fn task_count_by_status(tasks: &[Task], status: StatusEnum) -> usize {
+    tasks.iter().filter(|t| t.status == status).count()
+}
+
+/// Fraction of tasks in `Complete` state.
+fn calculate_progress(tasks: &[Task]) -> f64 {
+    if tasks.is_empty() {
+        return 0.0;
+    }
+    let complete = tasks
+        .iter()
+        .filter(|t| t.status == StatusEnum::Complete)
+        .count();
+    complete as f64 / tasks.len() as f64
+}
+
+/// Crude velocity proxy: completed tasks per hour since the earliest
+/// `created_at`. Zero if no completions yet.
+fn calculate_velocity(tasks: &[Task]) -> f64 {
+    let completed: Vec<&Task> = tasks
+        .iter()
+        .filter(|t| t.status == StatusEnum::Complete && t.completed_at.is_some())
+        .collect();
+    if completed.is_empty() {
+        return 0.0;
+    }
+    let earliest = tasks
+        .iter()
+        .map(|t| t.created_at)
+        .min()
+        .unwrap_or_else(chrono::Utc::now);
+    let latest = completed
+        .iter()
+        .map(|t| t.completed_at.unwrap())
+        .max()
+        .unwrap_or(earliest);
+    let hours = (latest - earliest).num_seconds().max(1) as f64 / 3600.0;
+    completed.len() as f64 / hours
 }
 
 // ============================================================================
@@ -314,5 +468,93 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         assert!(tasks[0].dependencies.is_empty());
         assert_eq!(tasks[0].description, "do the minimum");
+    }
+
+    // ------------------------------------------------------------------
+    // adapt_plan tests
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn adapt_plan_replaces_task_list_with_parsed_response() {
+        let fake = Arc::new(FakeLLM {
+            response: r#"{"tasks":[
+                {"task_id":"a1","description":"contain the change","assigned_mos":"11B"},
+                {"task_id":"a2","description":"redirect supply","assigned_mos":"92G","dependencies":["a1"]}
+            ]}"#
+            .to_string(),
+        });
+        let planner = MissionPlanner::new(fake);
+        let mission = sample_mission();
+        let original_tasks = vec![Task {
+            id: "old1".into(),
+            description: "original".into(),
+            status: StatusEnum::Engaged,
+            ..Task::default()
+        }];
+        let adapted = planner
+            .adapt_plan(&mission, &original_tasks, "supply line severed")
+            .await
+            .unwrap();
+        assert_eq!(adapted.len(), 2);
+        assert_eq!(adapted[0].description, "contain the change");
+        assert_eq!(adapted[1].dependencies, vec!["a1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn adapt_plan_fails_loud_on_malformed_response() {
+        let fake = Arc::new(FakeLLM {
+            response: "the plan remains unchanged".to_string(),
+        });
+        let planner = MissionPlanner::new(fake);
+        let err = planner
+            .adapt_plan(&sample_mission(), &[], "change")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, PlanError::MalformedJson { .. }));
+    }
+
+    // ------------------------------------------------------------------
+    // predict_execution tests
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn predict_execution_returns_raw_foresight() {
+        let fake = Arc::new(FakeLLM {
+            response: "Layer 1: current state.\nLayer 2: T+1 pivot at supply.\nLayer 3: telegraph LUNGE.".to_string(),
+        });
+        let planner = MissionPlanner::new(fake);
+        let mission = sample_mission();
+        let prediction = planner
+            .predict_execution(&mission, &[], &PromptContext::new(), 3)
+            .await
+            .unwrap();
+        assert_eq!(prediction.horizon_depth, 3);
+        assert!(prediction.raw.contains("telegraph LUNGE"));
+        assert_eq!(prediction.mission_id, mission.id);
+    }
+
+    // ------------------------------------------------------------------
+    // Pure helpers
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn calculate_progress_handles_empty() {
+        assert_eq!(calculate_progress(&[]), 0.0);
+    }
+
+    #[test]
+    fn calculate_progress_counts_complete_fraction() {
+        let mut done = Task::default();
+        done.status = StatusEnum::Complete;
+        let mut pending = Task::default();
+        pending.status = StatusEnum::Standby;
+        assert!((calculate_progress(&[done, pending]) - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn calculate_velocity_zero_when_no_completions() {
+        let mut t = Task::default();
+        t.status = StatusEnum::Engaged;
+        assert_eq!(calculate_velocity(&[t]), 0.0);
     }
 }

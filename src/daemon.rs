@@ -12,10 +12,13 @@ use crate::agent::RRAgent;
 use crate::config::{load_config, Config, Paths};
 use crate::doctrine::{default_doctrine_loader, FileSystemDoctrineLoader};
 use crate::factory::AgentFactory;
+use crate::llm::providers::{AnthropicClient, GoogleClient, OllamaClient, OpenAiCompatClient};
+use crate::llm::{DeterministicLLMClient, LlmRouter, ProviderKind, ResponseCache};
 use crate::logging::JsonlLogger;
 use crate::models::*;
 use crate::persistence::SqliteStateStore;
-use crate::traits::{EventLogger, DoctrineLoader, StateStore};
+use crate::swarm_orchestrator::SwarmOrchestrator;
+use crate::traits::{DoctrineLoader, EventLogger, LLMClient, StateStore};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -47,6 +50,13 @@ pub struct DaemonState {
     pub doctrine: Arc<FileSystemDoctrineLoader>,
     pub state_store: Arc<SqliteStateStore>,
     pub logger: Arc<JsonlLogger>,
+    /// Deterministic LLM client used for mission decomposition + task
+    /// execution + civilian contract execution. Wrapped around whichever
+    /// concrete provider the router's `strategic` tier picks.
+    pub llm: Arc<dyn LLMClient>,
+    /// Tier router loaded from `config/llm.toml` (or compiled-in defaults
+    /// pointing at Ollama).
+    pub router: Arc<LlmRouter>,
 }
 
 impl DaemonState {
@@ -55,12 +65,16 @@ impl DaemonState {
         doctrine: FileSystemDoctrineLoader,
         state_store: SqliteStateStore,
         logger: JsonlLogger,
+        llm: Arc<dyn LLMClient>,
+        router: Arc<LlmRouter>,
     ) -> Self {
         Self {
             factory: Arc::new(Mutex::new(factory)),
             doctrine: Arc::new(doctrine),
             state_store: Arc::new(state_store),
             logger: Arc::new(logger),
+            llm,
+            router,
         }
     }
 }
@@ -107,7 +121,15 @@ impl Daemon {
         // Logger
         let logger = JsonlLogger::new(paths.log_file())?;
 
-        let state = DaemonState::new(factory, doctrine, state_store, logger);
+        // LLM router + deterministic client. The router picks a tier (defaults
+        // to Ollama local) and we build a concrete provider from it, then wrap
+        // with DeterministicLLMClient + cache so every call is replayable.
+        let router = Arc::new(LlmRouter::from_env_or_default());
+        let cache = Arc::new(ResponseCache::open(&paths.state_dir.join("llm_cache.db"))?);
+        let llm: Arc<dyn LLMClient> =
+            build_llm_from_router(&router, cache, &config.paths)?;
+
+        let state = DaemonState::new(factory, doctrine, state_store, logger, llm, router);
 
         Ok(Self {
             config,
@@ -194,6 +216,13 @@ impl Daemon {
         self.stop
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
+
+    /// Cheap handle to the shared daemon state. Used by sibling binaries
+    /// (`rr-http`) that want to drive the same state without owning the
+    /// unix-socket serve loop.
+    pub fn state_clone(&self) -> DaemonState {
+        self.state.clone()
+    }
 }
 
 // ============================================================================
@@ -251,6 +280,8 @@ async fn dispatch(request: &serde_json::Value, state: &DaemonState) -> serde_jso
         "rr_roster" => handle_roster(state, &params),
         "rr_deploy_swarm" => handle_deploy_swarm(state, &params),
         "rr_status" => handle_status(state, &params),
+        "rr_execute_mission" => handle_rr_execute_mission(state, &params).await,
+        "rr_disband" => handle_rr_disband(state, &params).await,
         "cr_register_civilian" => handle_cr_register_civilian(state, &params),
         "cr_list_civilians" => handle_cr_list_civilians(state, &params),
         "cr_firm_detail" => handle_cr_firm_detail(state, &params),
@@ -258,6 +289,7 @@ async fn dispatch(request: &serde_json::Value, state: &DaemonState) -> serde_jso
         "cr_contract_accept" => handle_cr_contract_accept(state, &params),
         "cr_contract_sitrep" => handle_cr_contract_sitrep(state, &params),
         "cr_contract_closeout" => handle_cr_contract_closeout(state, &params),
+        "cr_execute_contract" => handle_cr_execute_contract(state, &params).await,
         _ => Err(DaemonError::MethodNotFound(method.to_string())),
     };
 
@@ -555,6 +587,83 @@ fn handle_status(state: &DaemonState, params: &serde_json::Value) -> Result<serd
         "agents": agent_values,
         "agent_count": agents.len(),
     }))
+}
+
+// ============================================================================
+// Mission execution handlers
+// ============================================================================
+
+async fn handle_rr_execute_mission(
+    state: &DaemonState,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, DaemonError> {
+    let swarm_id = params
+        .get("swarm_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| DaemonError::Handler("swarm_id is required".into()))?;
+    let objective = params
+        .get("objective")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| DaemonError::Handler("objective is required".into()))?;
+    let priority_str = params
+        .get("priority")
+        .and_then(|v| v.as_str())
+        .unwrap_or("routine");
+    let priority = parse_priority(priority_str)?;
+
+    let mut mission = Mission::default();
+    mission.objective = objective.to_string();
+    mission.priority = priority;
+    mission.assigned_swarm = Some(swarm_id.to_string());
+
+    let orchestrator = SwarmOrchestrator::new(
+        state.state_store.clone(),
+        state.doctrine.clone(),
+        state.llm.clone(),
+        state.router.clone(),
+    );
+    let executions = orchestrator
+        .execute_mission(swarm_id, mission.clone())
+        .await
+        .map_err(|e| DaemonError::Handler(e.to_string()))?;
+
+    Ok(json!({
+        "mission_id": mission.id,
+        "swarm_id": swarm_id,
+        "tasks_executed": executions.len(),
+        "tasks": executions,
+    }))
+}
+
+async fn handle_rr_disband(
+    state: &DaemonState,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, DaemonError> {
+    let swarm_id = params
+        .get("swarm_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| DaemonError::Handler("swarm_id is required".into()))?;
+    let orchestrator = SwarmOrchestrator::new(
+        state.state_store.clone(),
+        state.doctrine.clone(),
+        state.llm.clone(),
+        state.router.clone(),
+    );
+    let report = orchestrator
+        .disband_swarm(swarm_id)
+        .await
+        .map_err(|e| DaemonError::Handler(e.to_string()))?;
+    Ok(serde_json::to_value(&report).unwrap_or(json!({})))
+}
+
+fn parse_priority(s: &str) -> Result<PriorityEnum, DaemonError> {
+    Ok(match s {
+        "routine" => PriorityEnum::Routine,
+        "priority" => PriorityEnum::Priority,
+        "urgent" => PriorityEnum::Urgent,
+        "critical" => PriorityEnum::Critical,
+        other => return Err(DaemonError::Handler(format!("unknown priority: {}", other))),
+    })
 }
 
 // ============================================================================
@@ -995,6 +1104,201 @@ fn handle_cr_contract_closeout(
     Ok(json!({
         "contract": serde_json::to_value(&contract).unwrap_or_default(),
     }))
+}
+
+/// Execute a civilian contract: load the contract, build a prompt from the
+/// firm's (or independent's) doctrine + the contract brief, call the LLM,
+/// record the response as a SITREP, and (optionally) close the contract.
+async fn handle_cr_execute_contract(
+    state: &DaemonState,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, DaemonError> {
+    let contract_id = params
+        .get("contract_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| DaemonError::Handler("contract_id is required".into()))?;
+    let auto_close = params
+        .get("auto_close")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let mut contract = state
+        .state_store
+        .load_contract(contract_id)
+        .map_err(|e| DaemonError::State(e.to_string()))?
+        .ok_or_else(|| DaemonError::Handler(format!("contract `{}` not found", contract_id)))?;
+
+    let doctrine = state
+        .doctrine
+        .civilian_doctrine(&contract.firm_id)
+        .map_err(|e| DaemonError::Handler(e.to_string()))?;
+
+    let prompt = state
+        .doctrine
+        .assemble_contract_prompt(&doctrine, &contract.brief)
+        .map_err(|e| DaemonError::Handler(e.to_string()))?;
+
+    // Resolve tier: civilian firms default to tactical, specialists to
+    // execution_guidance (see `tier_for_civilian`). Build a minimal
+    // CivilianRecord stand-in from the doctrine for tier routing.
+    let tier = match doctrine.kind {
+        crate::models::CivilianTier::Firm => "tactical",
+        _ => "execution_guidance",
+    };
+
+    let response = state
+        .llm
+        .complete(&prompt, tier, Some(4096), Some(0.0))
+        .await
+        .map_err(|e| DaemonError::Handler(format!("LLM call failed: {}", e)))?;
+
+    // Append a CONTRACT_SITREP event capturing the response.
+    let _ = state.state_store.append_event(
+        "CONTRACT_SITREP",
+        &json!({
+            "contract_id": contract.id,
+            "firm_id": contract.firm_id,
+            "status": "active",
+            "progress": 1.0,
+            "message": format!("{} chars of response", response.chars().count()),
+            "response_digest": blake3::hash(response.as_bytes()).to_hex().to_string(),
+            "response": response,
+        }),
+        None,
+        Some(&contract.contracting_agent),
+    );
+
+    if matches!(
+        contract.state,
+        ContractState::Requested | ContractState::Accepted
+    ) {
+        contract.state = ContractState::InProgress;
+        state
+            .state_store
+            .save_contract(&contract)
+            .map_err(|e| DaemonError::State(e.to_string()))?;
+    }
+
+    if auto_close {
+        contract.state = ContractState::Closed;
+        contract.outcome = Some(ContractOutcome::Complete);
+        contract.closed_at = Some(chrono::Utc::now());
+        state
+            .state_store
+            .save_contract(&contract)
+            .map_err(|e| DaemonError::State(e.to_string()))?;
+        let _ = state.state_store.append_event(
+            "CONTRACT_CLOSEOUT",
+            &json!({
+                "contract_id": contract.id,
+                "firm_id": contract.firm_id,
+                "outcome": "complete",
+                "auto": true,
+            }),
+            None,
+            Some(&contract.contracting_agent),
+        );
+    }
+
+    Ok(json!({
+        "contract": contract,
+        "response": response,
+    }))
+}
+
+// ============================================================================
+// LLM construction from router
+// ============================================================================
+
+/// Build a concrete `Arc<dyn LLMClient>` from the router's `execution` tier
+/// plus any API keys in the environment. The returned client is already
+/// wrapped with `DeterministicLLMClient` for temperature=0 + cache replay.
+///
+/// Env vars consulted (per provider):
+/// - `OLLAMA_HOST` (default `http://localhost:11434`)
+/// - `ANTHROPIC_API_KEY`
+/// - `OPENAI_API_KEY` / `GROQ_API_KEY` / `MISTRAL_API_KEY` / `KIMI_API_KEY`
+///   / `QWEN_API_KEY`
+/// - `GOOGLE_API_KEY`
+fn build_llm_from_router(
+    router: &LlmRouter,
+    cache: Arc<ResponseCache>,
+    paths: &Paths,
+) -> Result<Arc<dyn LLMClient>, BoxError> {
+    let _ = paths; // reserved for per-provider auth-file lookups
+
+    // The daemon uses the "execution" tier for the concrete default LLM; the
+    // orchestrator may override on a per-task basis by calling the router
+    // directly (e.g. "strategic" for mission decomposition). For Slice E.2
+    // we use one concrete client at a time -- a multi-tier multiplex is E.3.
+    let route = router
+        .route("execution")
+        .ok_or("router has no `execution` tier")?;
+
+    let inner: Arc<dyn LLMClient> = match route.provider {
+        ProviderKind::Ollama => {
+            let base = route.base_url.clone().unwrap_or_else(|| {
+                std::env::var("OLLAMA_HOST")
+                    .unwrap_or_else(|_| "http://localhost:11434".to_string())
+            });
+            let mut c = OllamaClient::new(base, &route.model);
+            if let Some(seed) = route.seed {
+                c = c.with_seed(seed);
+            }
+            Arc::new(c)
+        }
+        ProviderKind::Anthropic => {
+            let key = std::env::var("ANTHROPIC_API_KEY")
+                .map_err(|_| "ANTHROPIC_API_KEY env var required")?;
+            Arc::new(AnthropicClient::new(&route.model, key))
+        }
+        ProviderKind::OpenAiCompat => {
+            let base = route
+                .base_url
+                .clone()
+                .unwrap_or_else(|| "https://api.openai.com/v1".into());
+            let key = std::env::var("OPENAI_API_KEY")
+                .or_else(|_| std::env::var("GROQ_API_KEY"))
+                .or_else(|_| std::env::var("MISTRAL_API_KEY"))
+                .or_else(|_| std::env::var("KIMI_API_KEY"))
+                .or_else(|_| std::env::var("QWEN_API_KEY"))
+                .map_err(|_| {
+                    "no API key env var set (tried OPENAI_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY, KIMI_API_KEY, QWEN_API_KEY)"
+                })?;
+            let mut c = OpenAiCompatClient::new(base, &route.model, key);
+            if let Some(seed) = route.seed {
+                c = c.with_seed(seed);
+            }
+            Arc::new(c)
+        }
+        ProviderKind::Google => {
+            let key = std::env::var("GOOGLE_API_KEY")
+                .map_err(|_| "GOOGLE_API_KEY env var required")?;
+            let mut c = GoogleClient::new(&route.model, key);
+            if let Some(seed) = route.seed {
+                c = c.with_seed(seed);
+            }
+            Arc::new(c)
+        }
+        ProviderKind::Kimi => {
+            let key = std::env::var("KIMI_API_KEY")
+                .or_else(|_| std::env::var("MOONSHOT_API_KEY"))
+                .map_err(|_| "KIMI_API_KEY or MOONSHOT_API_KEY required")?;
+            Arc::new(OpenAiCompatClient::kimi(&route.model, key))
+        }
+        ProviderKind::Onnx => {
+            return Err("ONNX provider is not implemented yet (E.3)".into());
+        }
+    };
+
+    let wrapped = DeterministicLLMClient::new(
+        inner,
+        cache,
+        format!("{:?}", route.provider).to_lowercase(),
+        route.model.clone(),
+        route.provider,
+    );
+    Ok(Arc::new(wrapped))
 }
 
 // ============================================================================

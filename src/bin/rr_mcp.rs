@@ -66,6 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     "rr_roster" => ("rr_roster", arguments),
                     "rr_deploy_swarm" => ("rr_deploy_swarm", arguments),
                     "rr_status" => ("rr_status", arguments),
+                    "rr_execute_mission" => ("rr_execute_mission", arguments),
+                    "rr_disband" => ("rr_disband", arguments),
                     "cr_register_civilian" => ("cr_register_civilian", arguments),
                     "cr_list_civilians" => ("cr_list_civilians", arguments),
                     "cr_firm_detail" => ("cr_firm_detail", arguments),
@@ -73,6 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     "cr_contract_accept" => ("cr_contract_accept", arguments),
                     "cr_contract_sitrep" => ("cr_contract_sitrep", arguments),
                     "cr_contract_closeout" => ("cr_contract_closeout", arguments),
+                    "cr_execute_contract" => ("cr_execute_contract", arguments),
                     "initialize" => {
                         // Respond to initialization
                         let resp = json!({
@@ -130,6 +133,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                             "properties": {
                                                 "swarm_id": {"type": "string"},
                                             },
+                                        },
+                                    },
+                                    {
+                                        "name": "rr_execute_mission",
+                                        "description": "Execute a mission: plan (via LLM) -> assign -> execute DAG. Military path.",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "required": ["swarm_id", "objective"],
+                                            "properties": {
+                                                "swarm_id": {"type": "string"},
+                                                "objective": {"type": "string"},
+                                                "priority": {"type": "string", "enum": ["routine","priority","urgent","critical"]},
+                                            },
+                                        },
+                                    },
+                                    {
+                                        "name": "rr_disband",
+                                        "description": "Disband a swarm and generate an After-Action Review",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "required": ["swarm_id"],
+                                            "properties": {"swarm_id": {"type": "string"}},
                                         },
                                     },
                                     {
@@ -211,6 +236,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                                 "contract_id": {"type": "string"},
                                                 "outcome": {"type": "string", "enum": ["complete", "failed", "cancelled"]},
                                                 "deliverables": {},
+                                            },
+                                        },
+                                    },
+                                    {
+                                        "name": "cr_execute_contract",
+                                        "description": "Execute a contract: build prompt from civilian doctrine + brief, call LLM, record SITREP, auto-close on completion",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "required": ["contract_id"],
+                                            "properties": {
+                                                "contract_id": {"type": "string"},
+                                                "auto_close": {"type": "boolean"},
                                             },
                                         },
                                     },

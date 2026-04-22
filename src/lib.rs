@@ -29,6 +29,8 @@ pub mod general_mind;
 pub mod mission_planner;
 pub mod swarm_orchestrator;
 pub mod vectordb;
+pub mod predictive;
+pub mod api_routes;
 
 pub use agent::{tier_for, tier_for_civilian, tier_for_rank, RRAgent};
 pub use broker::ContractBroker;

@@ -68,6 +68,14 @@ pub struct TaskExecution {
     pub error: Option<String>,
 }
 
+/// Disband outcome returned by `disband_swarm`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DisbandReport {
+    pub swarm_id: String,
+    pub disbanded_at: chrono::DateTime<chrono::Utc>,
+    pub aar: AAR,
+}
+
 pub struct SwarmOrchestrator {
     state_store: Arc<SqliteStateStore>,
     doctrine: Arc<FileSystemDoctrineLoader>,
@@ -249,6 +257,81 @@ impl SwarmOrchestrator {
         Ok(results)
     }
 
+    /// Disband the swarm: mark it Complete, generate an After-Action Review
+    /// from the event log, and emit `SWARM_DISBANDED` + `AAR_GENERATED` events.
+    ///
+    /// Ports `rr/swarm_orchestrator.py::disband_swarm` + `_generate_aar`. The
+    /// Rust version sources performance data from the event log rather than
+    /// keeping an in-process active_swarms map -- matches RR's "event log is
+    /// the source of truth" contract.
+    pub async fn disband_swarm(
+        &self,
+        swarm_id: &str,
+    ) -> Result<DisbandReport, OrchestrateError> {
+        let mut swarm = self
+            .state_store
+            .load_swarm(swarm_id)
+            .map_err(OrchestrateError::Persistence)?
+            .ok_or_else(|| OrchestrateError::UnknownSwarm(swarm_id.to_string()))?;
+        let agents = self
+            .state_store
+            .list_agents(Some(swarm_id), None, None, None)
+            .map_err(OrchestrateError::Persistence)?;
+        let mission = swarm
+            .mission_id
+            .as_deref()
+            .and_then(|mid| self.state_store.load_mission(mid).ok().flatten());
+
+        let aar = generate_aar(&swarm, mission.as_ref(), &agents);
+
+        // Mark swarm disbanded.
+        let now = chrono::Utc::now();
+        swarm.status = StatusEnum::Complete;
+        swarm.disbanded_at = Some(now);
+        self.state_store
+            .save_swarm(&swarm)
+            .map_err(OrchestrateError::Persistence)?;
+
+        // Write disband + AAR events.
+        self.state_store
+            .append_event(
+                "SWARM_DISBANDED",
+                &json!({
+                    "swarm_id": swarm_id,
+                    "agent_count": agents.len(),
+                    "success": aar.success,
+                }),
+                Some(swarm_id),
+                None,
+            )
+            .map_err(OrchestrateError::Persistence)?;
+        self.state_store
+            .append_event(
+                "AAR_GENERATED",
+                &serde_json::to_value(&aar).unwrap_or(json!({})),
+                Some(swarm_id),
+                None,
+            )
+            .map_err(OrchestrateError::Persistence)?;
+
+        // Emit per-agent deactivation events so audit trails are symmetric
+        // with AGENT_SPAWNED.
+        for a in &agents {
+            let _ = self.state_store.append_event(
+                "AGENT_DEACTIVATED",
+                &json!({"agent_id": a.id}),
+                Some(swarm_id),
+                Some(&a.id),
+            );
+        }
+
+        Ok(DisbandReport {
+            swarm_id: swarm_id.to_string(),
+            disbanded_at: now,
+            aar,
+        })
+    }
+
     async fn execute_single_task(
         &self,
         swarm: &Swarm,
@@ -392,6 +475,79 @@ fn mos_code(mos: &MOSEnum) -> &'static str {
     }
 }
 
+/// Generate an After-Action Review from swarm + mission + agent roster.
+///
+/// Ports `rr/swarm_orchestrator.py::_generate_aar`. Unlike the Python
+/// prototype which hardcoded recommendations, the Rust version populates
+/// `agent_performance` from the live roster (rank/MOS markers) and lets
+/// the caller (or later reducers) attach lessons/recommendations from the
+/// event log.
+fn generate_aar(swarm: &Swarm, mission: Option<&Mission>, agents: &[AgentRecord]) -> AAR {
+    let success = mission
+        .map(|m| m.status == StatusEnum::Complete)
+        .unwrap_or(false);
+    let mut agent_performance: HashMap<String, serde_json::Value> = HashMap::new();
+    for a in agents {
+        agent_performance.insert(
+            a.id.clone(),
+            json!({
+                "name": a.name,
+                "rank": format!("{:?}", a.rank),
+                "mos": format!("{:?}", a.mos),
+                "missions_completed": a.missions_completed,
+                "performance_score": a.performance_score,
+                "status": a.status,
+            }),
+        );
+    }
+    let mut resource_usage: HashMap<String, serde_json::Value> = HashMap::new();
+    resource_usage.insert("total_agents".into(), json!(agents.len()));
+
+    let mut timeline_row: HashMap<String, serde_json::Value> = HashMap::new();
+    timeline_row.insert("created".into(), json!(swarm.created_at.to_rfc3339()));
+    if let Some(ts) = swarm.activated_at {
+        timeline_row.insert("activated".into(), json!(ts.to_rfc3339()));
+    }
+    timeline_row.insert(
+        "disbanded".into(),
+        json!(swarm
+            .disbanded_at
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339()),
+    );
+
+    let objectives_met = if success {
+        mission
+            .map(|m| vec![m.objective.clone()])
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let objectives_missed = if !success {
+        mission
+            .map(|m| vec![m.objective.clone()])
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    AAR {
+        id: uuid::Uuid::new_v4().to_string(),
+        mission_id: mission.map(|m| m.id.clone()).unwrap_or_else(|| "unknown".into()),
+        swarm_id: swarm.id.clone(),
+        success,
+        objectives_met,
+        objectives_missed,
+        lessons_learned: Vec::new(),
+        agent_performance,
+        resource_usage,
+        timeline: vec![timeline_row],
+        recommendations: Vec::new(),
+        created_at: chrono::Utc::now(),
+        metadata: HashMap::new(),
+    }
+}
+
 /// Support tasks whose dependency strings reference the planner-level
 /// `task_id` (from the LLM response) rather than our generated UUID
 /// [`Task.id`].
@@ -479,6 +635,49 @@ mod tests {
         // round robin: first task -> agent[0], second -> agent[1]
         assert_eq!(a.get(&tasks[0].id).unwrap(), "agent-one");
         assert_eq!(a.get(&tasks[1].id).unwrap(), "agent-two");
+    }
+
+    #[test]
+    fn aar_marks_success_when_mission_complete() {
+        let mut mission = Mission::default();
+        mission.status = StatusEnum::Complete;
+        mission.objective = "Audit layout".into();
+        let swarm = Swarm {
+            id: "s1".into(),
+            name: "alpha".into(),
+            general_id: "g1".into(),
+            ..Swarm::default()
+        };
+        let agents = vec![agent("one", RankEnum::GEN, MOSEnum::SfEngineer)];
+        let aar = generate_aar(&swarm, Some(&mission), &agents);
+        assert!(aar.success);
+        assert_eq!(aar.objectives_met, vec!["Audit layout".to_string()]);
+        assert!(aar.objectives_missed.is_empty());
+        assert!(aar.agent_performance.contains_key("agent-one"));
+        assert_eq!(
+            aar.resource_usage.get("total_agents").and_then(|v| v.as_u64()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn aar_marks_failure_when_mission_not_complete() {
+        let mut mission = Mission::default();
+        mission.status = StatusEnum::Failed;
+        mission.objective = "Hold the line".into();
+        let swarm = Swarm::default();
+        let aar = generate_aar(&swarm, Some(&mission), &[]);
+        assert!(!aar.success);
+        assert_eq!(aar.objectives_missed, vec!["Hold the line".to_string()]);
+        assert!(aar.objectives_met.is_empty());
+    }
+
+    #[test]
+    fn aar_handles_no_mission_at_all() {
+        let swarm = Swarm::default();
+        let aar = generate_aar(&swarm, None, &[]);
+        assert!(!aar.success);
+        assert_eq!(aar.mission_id, "unknown");
     }
 
     #[test]

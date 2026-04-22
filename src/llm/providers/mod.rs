@@ -7,6 +7,12 @@
 //!
 //! E.1 ships `ollama` only. Cloud providers land in E.2/E.3.
 
+pub mod anthropic;
+pub mod google;
 pub mod ollama;
+pub mod openai_compat;
 
+pub use anthropic::AnthropicClient;
+pub use google::GoogleClient;
 pub use ollama::OllamaClient;
+pub use openai_compat::OpenAiCompatClient;
