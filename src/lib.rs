@@ -24,6 +24,11 @@ pub mod logging;
 pub mod persistence;
 pub mod daemon;
 pub mod broker;
+pub mod llm;
+pub mod general_mind;
+pub mod mission_planner;
+pub mod swarm_orchestrator;
+pub mod vectordb;
 
 pub use agent::{tier_for, tier_for_civilian, tier_for_rank, RRAgent};
 pub use broker::ContractBroker;

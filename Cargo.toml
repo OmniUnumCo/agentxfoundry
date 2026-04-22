@@ -30,6 +30,15 @@ toml = "0.8"
 async-trait = "0.1"
 dirs = "5"
 libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+blake3 = "1.5"
+
+[features]
+default = []
+# LanceDB integration lives under a feature flag; add `lancedb = { version = "0.27",
+# optional = true }` and wire through src/vectordb/lancedb.rs when we adopt it.
+# Until then the BruteForceStore is the only VectorStore implementation.
 
 [dev-dependencies]
 tempfile = "3"
+httptest = "0.16"
