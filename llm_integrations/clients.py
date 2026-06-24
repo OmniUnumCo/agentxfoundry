@@ -74,15 +74,7 @@ class LLMClient:
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content
-        elif self.name == "ollama":
-            resp = requests.post(
-                f"{self.client}/api/generate",
-                json={"model": "llama3:latest", "prompt": prompt, "stream": False},
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            return self._extract_response(resp.json())
-        elif self.name == "llama":
+        elif self.name in ["ollama", "llama"]:
             resp = requests.post(
                 f"{self.client}/api/generate",
                 json={"model": "llama3:latest", "prompt": prompt, "stream": False},
