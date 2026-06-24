@@ -1,4 +1,5 @@
 import os
+import math
 from typing import Dict, Any
 from openai import OpenAI
 from anthropic import Anthropic
@@ -10,7 +11,7 @@ import requests
 class LLMClient:
     def __init__(self, name: str, api_key: str = None):
         self.name = name
-        self.timeout = float(os.getenv("LLM_HTTP_TIMEOUT", "30"))
+        self.timeout = self._load_timeout()
         self.api_key = api_key or self._load_api_key()
         self.client = self._init_client()
 
@@ -20,6 +21,23 @@ class LLMClient:
         if "response" not in payload or payload.get("response") is None:
             raise ValueError("LLM response payload missing 'response' field")
         return str(payload.get("response"))
+
+    @staticmethod
+    def _load_timeout() -> float:
+        """Load and validate HTTP timeout from env, defaulting safely on invalid values."""
+        raw = os.getenv("LLM_HTTP_TIMEOUT", "30")
+        try:
+            timeout = float(raw)
+        except (TypeError, ValueError):
+            return 30.0
+
+        if not math.isfinite(timeout):
+            return 30.0
+
+        if timeout < 1 or timeout > 300:
+            return 30.0
+
+        return timeout
 
     def _load_api_key(self) -> str:
         # Try file path from env
