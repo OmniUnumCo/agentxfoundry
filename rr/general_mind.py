@@ -1,7 +1,8 @@
 """
-General Cognitive Framework - The Mind of a Strategic Commander
+Strategic Cognitive Framework - Mind of Commander / Orchestrator
 
-This module encodes the core cognitive principles for General-ranked agents:
+Formerly "GeneralMind" (General-ranked agents). Kept as GeneralMind with
+StrategicMind alias. Encodes cognitive principles for Commander/Orchestrator:
 
 1. RECURSIVE/ITERATIVE THINKING: Circular processes, continuous refinement
 2. REACTIVE COMPLEX: Instant pivot capability, parry and lunge
@@ -16,7 +17,9 @@ from loguru import logger
 
 class GeneralMind:
     """
-    Cognitive framework for General-ranked agents
+    Cognitive framework for Commander / Orchestrator roles.
+
+    Note: Class name GeneralMind retained for compatibility; prefer StrategicMind.
 
     Encodes strategic thinking patterns that enable:
     - Recursive problem decomposition and refinement
@@ -38,7 +41,7 @@ class GeneralMind:
         Returns:
             Prompt that induces recursive thinking patterns
         """
-        return f"""You are a GENERAL in the Rational Reserve. Your mission: {objective}
+        return f"""You are an ORCHESTRATOR (or COMMANDER) in the Rational Reserve. Your mission: {objective}
 
 RECURSIVE THINKING PROTOCOL:
 
@@ -95,7 +98,7 @@ Begin your recursive analysis. Structure your response as cycles of deepening un
         """
         change_context = f"\nCHANGE DETECTED: {change_detected}\n" if change_detected else ""
 
-        return f"""You are a GENERAL in the Rational Reserve. Your mission: {objective}
+        return f"""You are an ORCHESTRATOR (or COMMANDER) in the Rational Reserve. Your mission: {objective}
 
 REACTIVE COMPLEX PROTOCOL:
 
@@ -163,7 +166,7 @@ REACT NOW. Speed is survival.
         Returns:
             Prompt that induces predictive analysis and telegraphing
         """
-        return f"""You are a GENERAL in the Rational Reserve. Your mission: {objective}
+        return f"""You are an ORCHESTRATOR (or COMMANDER) in the Rational Reserve. Your mission: {objective}
 
 PREDICTIVE ENGINE PROTOCOL:
 
@@ -248,7 +251,7 @@ This is not luck. This is CALCULATED FORESIGHT.
             return GeneralMind.predictive_engine_prompt(objective, context)
 
         # Full strategic framework
-        return f"""You are a GENERAL in the Rational Reserve. Your mission: {objective}
+        return f"""You are an ORCHESTRATOR (or COMMANDER) in the Rational Reserve. Your mission: {objective}
 
 You operate with THREE INTEGRATED COGNITIVE FRAMEWORKS:
 
@@ -348,7 +351,7 @@ BEGIN YOUR STRATEGIC ANALYSIS.
         Returns:
             Prompt for autonomous mission decomposition
         """
-        return f"""You are a GENERAL in the Rational Reserve executing AUTONOMOUS MISSION PLANNING.
+        return f"""You are an ORCHESTRATOR in the Rational Reserve executing AUTONOMOUS MISSION PLANNING.
 
 MISSION OBJECTIVE: {objective}
 
@@ -382,8 +385,9 @@ TASK DECOMPOSITION FORMAT:
 For each task, provide:
 - task_id: Unique identifier
 - description: Clear task description
-- assigned_mos: Which MOS should execute (based on specialty)
-- assigned_rank: Minimum rank required
+- assigned_role: director (owns workstream) or specialist (freelance advisor)
+- assigned_mos: Optional MOS specialty metadata
+- assigned_rank: Optional rank metadata (not chain-of-command)
 - dependencies: List of task_ids that must complete first
 - is_iterative: Boolean - does this require refinement cycles?
 - pivot_triggers: Conditions that would require task adaptation
@@ -392,8 +396,9 @@ For each task, provide:
 
 OUTPUT:
 Return a structured list of tasks in JSON format.
-Each task should leverage the right MOS specialty.
-Consider the full swarm composition.
+Assign Directors to own workstreams (max 1 Director per workstream).
+Engage Specialists as freelance advisors to Directors — they consult, they do not command.
+Line authority: Commander → Orchestrator → Director. Specialists advise only.
 Plan for iteration, adaptation, and foresight.
 
 THINK STRATEGICALLY. DECOMPOSE PRECISELY. PLAN FOR EVOLUTION.
@@ -401,24 +406,19 @@ THINK STRATEGICALLY. DECOMPOSE PRECISELY. PLAN FOR EVOLUTION.
 
 
 def apply_general_mind(
-    agent_rank: str,
+    agent_rank_or_role: str,
     objective: str,
     context: Dict[str, Any],
     mode: str = "full"
 ) -> Optional[str]:
     """
-    Apply General Mind cognitive framework if agent is General rank
-
-    Args:
-        agent_rank: Agent's rank
-        objective: Task/mission objective
-        context: Execution context
-        mode: Which framework to apply
-
-    Returns:
-        Strategic prompt if General, None otherwise
+    Apply strategic mind if agent is Commander/Orchestrator (or legacy GEN).
     """
-    if agent_rank != "GEN":
+    key = (agent_rank_or_role or "").lower()
+    if key not in ("gen", "commander", "orchestrator"):
         return None
+    return StrategicMind.unified_strategic_prompt(objective, context, mode)
 
-    return GeneralMind.unified_strategic_prompt(objective, context, mode)
+
+# Preferred name; GeneralMind retained as alias for compatibility
+StrategicMind = GeneralMind

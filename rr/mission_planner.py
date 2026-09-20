@@ -1,7 +1,7 @@
 """
 Autonomous Mission Planning Engine
 
-Enables Generals to autonomously:
+Enables Orchestrators (and Commanders) to autonomously:
 1. Analyze mission objectives
 2. Decompose into executable tasks
 3. Assign tasks to appropriate agents by MOS/rank
@@ -14,12 +14,15 @@ from loguru import logger
 import json
 
 from .models import Mission, Task, RankEnum, MOSEnum, StatusEnum
-from .general_mind import GeneralMind
+from .general_mind import GeneralMind, StrategicMind
 
 
 class MissionPlanner:
     """
-    Autonomous mission planning for General-ranked agents
+    Autonomous mission planning for Orchestrator / Commander roles.
+
+    Assignment language uses Orchestrator / Director / Specialist
+    (Specialists advise Directors; they do not command).
 
     Converts high-level objectives into structured task plans
     """
@@ -54,8 +57,8 @@ class MissionPlanner:
         # Build swarm composition context
         composition_summary = self._summarize_swarm_composition(swarm_composition)
 
-        # Generate planning prompt using General Mind framework
-        planning_prompt = GeneralMind.mission_decomposition_prompt(
+        # Generate planning prompt using Strategic Mind framework
+        planning_prompt = StrategicMind.mission_decomposition_prompt(
             objective=mission.objective,
             constraints=mission.constraints,
             swarm_composition=composition_summary,
@@ -113,7 +116,7 @@ class MissionPlanner:
         }
 
         # Generate reactive adaptation prompt
-        adapt_prompt = GeneralMind.reactive_complex_prompt(
+        adapt_prompt = StrategicMind.reactive_complex_prompt(
             objective=mission.objective,
             current_state=current_state,
             change_detected=change_detected,
@@ -163,7 +166,7 @@ class MissionPlanner:
         }
 
         # Generate predictive analysis prompt
-        predict_prompt = GeneralMind.predictive_engine_prompt(
+        predict_prompt = StrategicMind.predictive_engine_prompt(
             objective=mission.objective,
             current_trajectory=trajectory,
             horizon_depth=3,

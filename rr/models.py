@@ -1,85 +1,161 @@
 """
 Data models for Rational Reserve swarm system
+
+Line authority (RoleEnum chain of command):
+  Commander → Orchestrator → Director
+
+Specialists are freelance/on-call advisors to Directors.
+They consult; they do not own programs or issue orders to Directors.
+
+RankEnum / MOSEnum remain as optional specialty metadata.
+Lifecycle: Idle → Briefed → Executing → Reporting → Idle
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from pydantic import BaseModel, Field
 from enum import Enum
 from datetime import datetime
 import uuid
 
 
+class RoleEnum(str, Enum):
+    """Primary roles.
+
+    Line authority (highest first): COMMANDER → ORCHESTRATOR → DIRECTOR
+    SPECIALIST is advisory (not in the command line above Directors).
+    """
+    COMMANDER = "commander"
+    ORCHESTRATOR = "orchestrator"
+    DIRECTOR = "director"
+    SPECIALIST = "specialist"
+
+
+# Line-authority levels (Specialist is advisory — not ranked above Director)
+ROLE_LINE_LEVEL = {
+    RoleEnum.DIRECTOR: 1,
+    RoleEnum.ORCHESTRATOR: 2,
+    RoleEnum.COMMANDER: 3,
+}
+
+
+# Direct line-command targets (who may issue orders to whom)
+VALID_COMMAND_TARGETS: Dict[RoleEnum, Set[RoleEnum]] = {
+    RoleEnum.COMMANDER: {RoleEnum.ORCHESTRATOR},
+    RoleEnum.ORCHESTRATOR: {RoleEnum.DIRECTOR},
+    RoleEnum.DIRECTOR: set(),  # Directors assign sub-agents; may request Specialist advisors
+    RoleEnum.SPECIALIST: set(),  # Specialists advise; they do not command
+}
+
+
 class RankEnum(str, Enum):
-    """Military ranks in Rational Reserve"""
-    # Officers
+    """Military ranks — optional specialty metadata (kept for compatibility).
+
+    Chain-of-command and factory spawn paths use RoleEnum, not RankEnum.
+    Mapping (legacy → role):
+      GEN ≈ COMMANDER or ORCHESTRATOR
+      COL/MAJ/CPT ≈ DIRECTOR (owns workstream / operationalizes)
+      LT/SGM/MSG/SGT/CPL ≈ DIRECTOR sub-tier or operational support
+      SPC specialty experts ≈ SPECIALIST (freelance advisor)
+      PFC/PVT ≈ operational sub-agents under Director
+    """
     GENERAL = "GEN"
     COLONEL = "COL"
     MAJOR = "MAJ"
     CAPTAIN = "CPT"
     LIEUTENANT = "LT"
-
-    # NCOs
     SERGEANT_MAJOR = "SGM"
     MASTER_SERGEANT = "MSG"
     SERGEANT = "SGT"
     CORPORAL = "CPL"
-
-    # Enlisted
     SPECIALIST = "SPC"
     PRIVATE_FIRST_CLASS = "PFC"
     PRIVATE = "PVT"
 
 
 class MOSEnum(str, Enum):
-    """Military Occupational Specialties"""
-    # Intelligence
+    """Military Occupational Specialties — optional specialty metadata"""
     INTELLIGENCE_ANALYST = "35F"
     COUNTERINTELLIGENCE = "35L"
     SIGINT_ANALYST = "35N"
-
-    # Operations
     INFANTRY = "11B"
     COMBAT_ENGINEER = "12B"
     ARTILLERY = "13B"
     CAVALRY_SCOUT = "19D"
-
-    # Support
     IT_SPECIALIST = "25B"
     HR_SPECIALIST = "42A"
     TRANSPORT = "88M"
     LOGISTICS = "92G"
-
-    # Special Operations
     SF_ENGINEER = "18B"
     RANGER = "75R"
     SOAR = "160"
 
 
 class StatusEnum(str, Enum):
-    """Agent and mission status states"""
-    STANDBY = "standby"
-    ACTIVE = "active"
-    ENGAGED = "engaged"
-    COMPLETE = "complete"
+    """Agent and mission lifecycle status states.
+
+    Primary lifecycle: IDLE → BRIEFED → EXECUTING → REPORTING → IDLE
+
+    Legacy aliases (same values for compatibility):
+      STANDBY → IDLE
+      ACTIVE / ENGAGED → EXECUTING
+      COMPLETE → REPORTING (then return to IDLE after SitRep)
+      FAILED / BLOCKED remain
+    """
+    IDLE = "idle"
+    BRIEFED = "briefed"
+    EXECUTING = "executing"
+    REPORTING = "reporting"
     FAILED = "failed"
     BLOCKED = "blocked"
+    # Legacy aliases
+    STANDBY = "idle"
+    ACTIVE = "executing"
+    ENGAGED = "executing"
+    COMPLETE = "reporting"
+
+
+LIFECYCLE_TRANSITIONS = {
+    StatusEnum.IDLE: {StatusEnum.BRIEFED, StatusEnum.FAILED},
+    StatusEnum.BRIEFED: {StatusEnum.EXECUTING, StatusEnum.IDLE, StatusEnum.BLOCKED, StatusEnum.FAILED},
+    StatusEnum.EXECUTING: {StatusEnum.REPORTING, StatusEnum.BLOCKED, StatusEnum.FAILED},
+    StatusEnum.REPORTING: {StatusEnum.IDLE, StatusEnum.FAILED},
+    StatusEnum.BLOCKED: {StatusEnum.EXECUTING, StatusEnum.REPORTING, StatusEnum.IDLE, StatusEnum.FAILED},
+    StatusEnum.FAILED: {StatusEnum.IDLE},
+}
 
 
 class PriorityEnum(str, Enum):
-    """Mission priority levels"""
     ROUTINE = "routine"
     PRIORITY = "priority"
     URGENT = "urgent"
     CRITICAL = "critical"
 
 
+class Assignment(BaseModel):
+    """Assignment contract handed down the chain (or advisory brief to Specialist).
+
+    Fields: goal, scope_boundary, done_criteria, stop_list, role_name
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    goal: str
+    scope_boundary: str = ""
+    done_criteria: List[str] = Field(default_factory=list)
+    stop_list: List[str] = Field(default_factory=list)
+    role_name: Optional[str] = None
+    from_agent: Optional[str] = None
+    to_agent: Optional[str] = None
+    mission_id: Optional[str] = None
+    is_advisory: bool = False  # True when briefing a Specialist advisor
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class Task(BaseModel):
-    """Atomic work unit"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     description: str
-    assigned_to: Optional[str] = None  # agent_id
-    status: StatusEnum = StatusEnum.STANDBY
-    dependencies: List[str] = Field(default_factory=list)  # task_ids
+    assigned_to: Optional[str] = None
+    status: StatusEnum = StatusEnum.IDLE
+    dependencies: List[str] = Field(default_factory=list)
     result: Optional[Any] = None
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -88,16 +164,15 @@ class Task(BaseModel):
 
 
 class Mission(BaseModel):
-    """High-level objective with decomposed tasks"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     objective: str
     description: Optional[str] = None
     priority: PriorityEnum = PriorityEnum.ROUTINE
-    status: StatusEnum = StatusEnum.STANDBY
+    status: StatusEnum = StatusEnum.IDLE
     constraints: Dict[str, Any] = Field(default_factory=dict)
     resources: Dict[str, Any] = Field(default_factory=dict)
     tasks: List[Task] = Field(default_factory=list)
-    assigned_swarm: Optional[str] = None  # swarm_id
+    assigned_swarm: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -106,38 +181,64 @@ class Mission(BaseModel):
 
 
 class Order(BaseModel):
-    """Command from superior to subordinate"""
+    """Command or advisory brief from one agent to another.
+
+    Includes Assignment contract fields: goal, scope_boundary, done_criteria,
+    stop_list, role_name.
+    """
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    from_agent: str  # superior agent_id
-    to_agent: str  # subordinate agent_id
-    order_type: str  # "mission", "frago", "status_request"
+    from_agent: str
+    to_agent: str
+    order_type: str  # "mission", "frago", "status_request", "assignment", "advisory_brief"
     content: str
     task_id: Optional[str] = None
     mission_id: Optional[str] = None
+    goal: Optional[str] = None
+    scope_boundary: Optional[str] = None
+    done_criteria: List[str] = Field(default_factory=list)
+    stop_list: List[str] = Field(default_factory=list)
+    role_name: Optional[str] = None
+    is_advisory: bool = False
     issued_at: datetime = Field(default_factory=datetime.utcnow)
     acknowledged_at: Optional[datetime] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+    def to_assignment(self) -> "Assignment":
+        return Assignment(
+            goal=self.goal or self.content,
+            scope_boundary=self.scope_boundary or "",
+            done_criteria=list(self.done_criteria),
+            stop_list=list(self.stop_list),
+            role_name=self.role_name,
+            from_agent=self.from_agent,
+            to_agent=self.to_agent,
+            mission_id=self.mission_id,
+            is_advisory=self.is_advisory,
+            metadata=dict(self.metadata),
+        )
+
 
 class SitRep(BaseModel):
-    """Situation Report from subordinate to superior"""
+    """Situation Report — done / blocked / next style."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    from_agent: str  # reporting agent_id
-    to_agent: Optional[str] = None  # receiving agent_id (None = broadcast)
+    from_agent: str
+    to_agent: Optional[str] = None
     status: StatusEnum
-    current_task: Optional[str] = None  # task_id
-    progress: float = 0.0  # 0.0 to 1.0
+    current_task: Optional[str] = None
+    progress: float = 0.0
     message: str
     blockers: List[str] = Field(default_factory=list)
+    done: List[str] = Field(default_factory=list)
+    next_actions: List[str] = Field(default_factory=list)
+    report_kind: str = "status"  # "done" | "blocked" | "next" | "status"
     reported_at: datetime = Field(default_factory=datetime.utcnow)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class CasRep(BaseModel):
-    """Casualty Report - agent failure notification"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     agent_id: str
-    failure_type: str  # "error", "timeout", "resource_exhaustion"
+    failure_type: str
     error_message: str
     task_id: Optional[str] = None
     stack_trace: Optional[str] = None
@@ -147,7 +248,6 @@ class CasRep(BaseModel):
 
 
 class AAR(BaseModel):
-    """After Action Review - post-mission analysis"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     mission_id: str
     swarm_id: str
@@ -164,29 +264,30 @@ class AAR(BaseModel):
 
 
 class Unit(BaseModel):
-    """Organizational unit (squad, platoon, company)"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str  # "Alpha Company", "1st Platoon", etc.
-    unit_type: str  # "fire_team", "squad", "platoon", "company", "battalion"
-    commander: Optional[str] = None  # agent_id
-    members: List[str] = Field(default_factory=list)  # agent_ids
-    parent_unit: Optional[str] = None  # parent unit_id
-    sub_units: List[str] = Field(default_factory=list)  # child unit_ids
-    status: StatusEnum = StatusEnum.STANDBY
+    name: str
+    unit_type: str
+    commander: Optional[str] = None
+    members: List[str] = Field(default_factory=list)
+    parent_unit: Optional[str] = None
+    sub_units: List[str] = Field(default_factory=list)
+    status: StatusEnum = StatusEnum.IDLE
     created_at: datetime = Field(default_factory=datetime.utcnow)
     disbanded_at: Optional[datetime] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class Swarm(BaseModel):
-    """Complete swarm instance"""
+    """Swarm: optional Commander → Orchestrator → Directors (+ Specialist advisors)."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     mission_id: str
-    general_id: Optional[str] = None  # commanding General agent_id
-    agents: List[str] = Field(default_factory=list)  # all agent_ids
-    units: List[str] = Field(default_factory=list)  # unit_ids
-    status: StatusEnum = StatusEnum.STANDBY
+    general_id: Optional[str] = None  # legacy alias → orchestrator_id
+    commander_id: Optional[str] = None
+    orchestrator_id: Optional[str] = None
+    agents: List[str] = Field(default_factory=list)
+    units: List[str] = Field(default_factory=list)
+    status: StatusEnum = StatusEnum.IDLE
     created_at: datetime = Field(default_factory=datetime.utcnow)
     activated_at: Optional[datetime] = None
     disbanded_at: Optional[datetime] = None
@@ -194,17 +295,20 @@ class Swarm(BaseModel):
 
 
 class AgentRecord(BaseModel):
-    """Persistent agent record for database"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-    rank: RankEnum
-    mos: MOSEnum
+    role: RoleEnum = RoleEnum.DIRECTOR
+    rank: Optional[RankEnum] = None
+    mos: Optional[MOSEnum] = None
     unit_id: Optional[str] = None
-    commander_id: Optional[str] = None  # superior agent_id
-    subordinates: List[str] = Field(default_factory=list)  # agent_ids
-    status: StatusEnum = StatusEnum.STANDBY
-    current_mission: Optional[str] = None  # mission_id
-    current_task: Optional[str] = None  # task_id
+    commander_id: Optional[str] = None  # direct line superior (None for advisory-only attach)
+    subordinates: List[str] = Field(default_factory=list)
+    advisors: List[str] = Field(default_factory=list)  # Specialist advisor agent_ids
+    advising: Optional[str] = None  # for Specialists: Director they advise
+    status: StatusEnum = StatusEnum.IDLE
+    current_mission: Optional[str] = None
+    current_task: Optional[str] = None
+    current_assignment: Optional[str] = None
     swarm_id: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     activated_at: Optional[datetime] = None
