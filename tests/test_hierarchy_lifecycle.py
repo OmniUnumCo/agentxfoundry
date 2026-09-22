@@ -22,7 +22,9 @@ if str(ROOT) not in sys.path:
 
 try:
     from utils.base_agent import BaseAgent  # noqa: F401
-except Exception:
+except ModuleNotFoundError as exc:
+    if exc.name not in {"utils", "utils.base_agent"}:
+        raise
     utils_pkg = types.ModuleType("utils")
     base_mod = types.ModuleType("utils.base_agent")
 

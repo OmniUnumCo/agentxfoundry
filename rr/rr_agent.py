@@ -14,9 +14,8 @@ from utils.base_agent import BaseAgent
 from .models import (
     RoleEnum, RankEnum, MOSEnum, StatusEnum, Task, Order, SitRep, CasRep,
     AgentRecord, Assignment, LIFECYCLE_TRANSITIONS, VALID_COMMAND_TARGETS,
-    ROLE_LINE_LEVEL,
 )
-from .general_mind import GeneralMind, StrategicMind
+from .general_mind import StrategicMind
 
 
 class RRAgent(BaseAgent):

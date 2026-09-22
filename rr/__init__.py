@@ -17,17 +17,17 @@ from .agent_factory import AgentFactory
 
 try:
     from .swarm_orchestrator import SwarmOrchestrator
-except Exception:
+except ImportError:
     SwarmOrchestrator = None  # type: ignore
 
 try:
     from .c2_router import C2Router
-except Exception:
+except ImportError:
     C2Router = None  # type: ignore
 
 try:
     from .general_mind import GeneralMind, StrategicMind
-except Exception:
+except ImportError:
     GeneralMind = None  # type: ignore
     StrategicMind = None  # type: ignore
 

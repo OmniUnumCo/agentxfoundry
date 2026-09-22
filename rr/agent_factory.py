@@ -251,14 +251,13 @@ class AgentFactory:
         for i in range(max(0, team_size - 1)):
             member = self.spawn_specialist(
                 mos=mos,
-                commander_id=commander_id,
+                commander_id=leader.agent_id,
                 advising=leader.agent_id,
                 name=f"{mos.name.title()} Specialist {i+1}",
             )
             leader.attach_advisor(member.agent_id)
             # Also track as subordinate for legacy fire-team ops
             leader.add_subordinate(member.agent_id)
-            member.commander_id = leader.agent_id
             agents.append(member)
         return agents
 

@@ -7,7 +7,7 @@ from loguru import logger
 from datetime import datetime
 
 from .models import (
-    Mission, Swarm, Unit, StatusEnum, RankEnum, MOSEnum, RoleEnum,
+    Mission, Swarm, Unit, StatusEnum, MOSEnum, RoleEnum,
     AAR, Task, PriorityEnum
 )
 from .agent_factory import AgentFactory
@@ -458,8 +458,8 @@ class SwarmOrchestrator:
             objectives_met=[mission.objective] if success else [],
             objectives_missed=[] if success else [mission.objective] if mission else [],
             lessons_learned=[
-                "Phase 1 implementation: General-only execution",
-                "Future: Implement task decomposition and delegation",
+                "Phase 1 implementation: Orchestrator-led execution",
+                "Future: Expand Director delegation across workstreams",
             ],
             agent_performance={
                 agent_id: {"tasks_completed": 1}
