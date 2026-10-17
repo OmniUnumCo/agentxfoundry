@@ -248,6 +248,7 @@ class MissionPlanner:
                         assigned_to=task_dict.get("assigned_agent_id"),
                         dependencies=task_dict.get("dependencies", []),
                         metadata={
+                            "assigned_role": task_dict.get("assigned_role"),
                             "assigned_mos": task_dict.get("assigned_mos"),
                             "assigned_rank": task_dict.get("assigned_rank"),
                             "is_iterative": task_dict.get("is_iterative", False),

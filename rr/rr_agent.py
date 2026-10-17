@@ -14,6 +14,7 @@ from utils.base_agent import BaseAgent
 from .models import (
     RoleEnum, RankEnum, MOSEnum, StatusEnum, Task, Order, SitRep, CasRep,
     AgentRecord, Assignment, LIFECYCLE_TRANSITIONS, VALID_COMMAND_TARGETS,
+    COMMANDER_ONLY_ROLES,
 )
 from .general_mind import StrategicMind
 
@@ -69,6 +70,7 @@ class RRAgent(BaseAgent):
             RoleEnum.ORCHESTRATOR: RankEnum.GENERAL,
             RoleEnum.DIRECTOR: RankEnum.COLONEL,
             RoleEnum.SPECIALIST: RankEnum.SPECIALIST,
+            RoleEnum.SPECOPS: RankEnum.SERGEANT_MAJOR,
         }
         return mapping.get(role, RankEnum.SPECIALIST)
 
@@ -126,6 +128,24 @@ class RRAgent(BaseAgent):
             f"{order.order_type} (advisory={order.is_advisory})"
         )
 
+        # SpecOps sits outside the line chain: it takes orders from the
+        # Commander only, and never issues line orders to anyone.
+        if self.role in COMMANDER_ONLY_ROLES:
+            if sender_role != RoleEnum.COMMANDER or (
+                self.commander_id is not None and order.from_agent != self.commander_id
+            ):
+                logger.warning(
+                    f"[{self.role.value} {self.name}] Order rejected: "
+                    f"SpecOps takes orders from the Commander only"
+                )
+                return False
+        if sender_role in COMMANDER_ONLY_ROLES:
+            logger.warning(
+                f"[{self.role.value} {self.name}] Order rejected: "
+                f"SpecOps does not command the line"
+            )
+            return False
+
         # Reject Specialist trying to command a Director / anyone
         if sender_role == RoleEnum.SPECIALIST and not order.is_advisory:
             logger.warning(
@@ -158,11 +178,10 @@ class RRAgent(BaseAgent):
         if self.role == RoleEnum.SPECIALIST:
             if order.is_advisory or order.order_type == "advisory_brief":
                 # Accept advisory brief from Orchestrator or advised Director
-                if (
-                    order.from_agent == self.commander_id
-                    or order.from_agent == self.advising
-                    or self.commander_id is None
-                ):
+                allowed_senders = {
+                    s for s in (self.commander_id, self.advising) if s is not None
+                }
+                if order.from_agent in allowed_senders:
                     order.acknowledged_at = datetime.utcnow()
                     self.current_assignment = order.to_assignment()
                     self.transition_status(StatusEnum.BRIEFED)
@@ -203,16 +222,33 @@ class RRAgent(BaseAgent):
                     )
                     return False
 
+        assignment = order.to_assignment()
+        if order.order_type == "assignment":
+            missing = assignment.missing_fields()
+            if missing:
+                logger.warning(
+                    f"[{self.role.value} {self.name}] Assignment rejected: "
+                    f"missing contract fields {missing}"
+                )
+                return False
+
+        if not self.transition_status(StatusEnum.BRIEFED):
+            return False
         order.acknowledged_at = datetime.utcnow()
-        self.current_assignment = order.to_assignment()
-        self.transition_status(StatusEnum.BRIEFED)
+        self.current_assignment = assignment
         logger.info(f"[{self.role.value} {self.name}] Order acknowledged → BRIEFED")
         return True
 
     def execute_task(self, task: Task) -> Any:
         """Execute assigned task using LLM; drive lifecycle EXECUTING → REPORTING → IDLE."""
+        if StatusEnum(self.status.value) not in (StatusEnum.BRIEFED, StatusEnum.BLOCKED):
+            raise RuntimeError(
+                f"{self.role.value} {self.name} must be briefed before executing "
+                f"(status={self.status.value})"
+            )
+        if not self.transition_status(StatusEnum.EXECUTING):
+            raise RuntimeError(f"Illegal transition {self.status.value} → executing")
         self.current_task = task
-        self.transition_status(StatusEnum.EXECUTING)
         task.status = StatusEnum.EXECUTING
 
         logger.info(
@@ -228,9 +264,10 @@ class RRAgent(BaseAgent):
             task.result = result
             task.completed_at = datetime.utcnow()
             self.transition_status(StatusEnum.REPORTING)
-            # After reporting, return to IDLE
+            # After reporting, return to IDLE and clear the assignment
             self.transition_status(StatusEnum.IDLE)
             self.current_task = None
+            self.current_assignment = None
             self.missions_completed += 1
 
             logger.info(f"[{self.role.value} {self.name}] Task completed → IDLE")
@@ -263,6 +300,8 @@ class RRAgent(BaseAgent):
         - Orchestrator/Director → Specialist (advisory brief, is_advisory=True)
         - Specialist cannot delegate line commands to Directors
         """
+        if self.role in COMMANDER_ONLY_ROLES:
+            raise ValueError("SpecOps does not delegate; it reports to the Commander only")
         if self.role == RoleEnum.SPECIALIST and not is_advisory:
             raise ValueError(
                 "Specialists do not issue line commands; advisory briefs only"
@@ -320,7 +359,9 @@ class RRAgent(BaseAgent):
     ) -> SitRep:
         """Generate done/blocked/next style SitRep for superior."""
         progress = 0.0
-        if self.current_task:
+        if kind == "done":
+            progress = 1.0
+        elif self.current_task:
             if self.status == StatusEnum.EXECUTING:
                 progress = 0.5
             elif self.status in (StatusEnum.REPORTING, StatusEnum.IDLE):

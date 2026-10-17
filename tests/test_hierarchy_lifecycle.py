@@ -50,6 +50,8 @@ from rr.models import (
     Assignment,
     VALID_COMMAND_TARGETS,
     LIFECYCLE_TRANSITIONS,
+    MOSEnum,
+    Task,
 )
 from rr.agent_factory import AgentFactory
 
@@ -62,7 +64,7 @@ class TestChainOfCommand(unittest.TestCase):
     def test_valid_command_targets(self):
         self.assertEqual(
             VALID_COMMAND_TARGETS[RoleEnum.COMMANDER],
-            {RoleEnum.ORCHESTRATOR},
+            {RoleEnum.ORCHESTRATOR, RoleEnum.SPECOPS},
         )
         self.assertEqual(
             VALID_COMMAND_TARGETS[RoleEnum.ORCHESTRATOR],
@@ -182,6 +184,9 @@ class TestChainOfCommand(unittest.TestCase):
             order_type="assignment",
             content="Run mission",
             goal="Mission X",
+            scope_boundary="Mission X only",
+            done_criteria=["mission AAR filed"],
+            stop_list=["no merges"],
             role_name="orchestrator",
         )
         self.assertTrue(orch.receive_order(order, sender_role=RoleEnum.COMMANDER))
@@ -201,6 +206,10 @@ class TestLifecycle(unittest.TestCase):
             order_type="assignment",
             content="Build feature",
             goal="Build feature",
+            scope_boundary="feature module",
+            done_criteria=["tests green"],
+            stop_list=["no deploys"],
+            role_name="director",
         )
         self.assertTrue(director.receive_order(order, sender_role=RoleEnum.ORCHESTRATOR))
         self.assertEqual(director.status, StatusEnum.BRIEFED)
@@ -324,6 +333,174 @@ class TestStatusAliases(unittest.TestCase):
         self.assertEqual(StatusEnum.ACTIVE.value, StatusEnum.EXECUTING.value)
         self.assertEqual(StatusEnum.ENGAGED.value, StatusEnum.EXECUTING.value)
         self.assertEqual(StatusEnum.COMPLETE.value, StatusEnum.REPORTING.value)
+
+
+def _contract(**kw):
+    base = dict(
+        order_type="assignment",
+        content="work",
+        goal="work",
+        scope_boundary="scope",
+        done_criteria=["done"],
+        stop_list=["stop"],
+        role_name="director",
+    )
+    base.update(kw)
+    return base
+
+
+class TestSpecOps(unittest.TestCase):
+    def test_specops_reports_directly_to_commander(self):
+        f = _factory()
+        cmd = f.spawn_commander()
+        so = f.spawn_specops(commander_id=cmd.agent_id)
+        self.assertEqual(so.role, RoleEnum.SPECOPS)
+        self.assertEqual(so.commander_id, cmd.agent_id)
+        self.assertIn(so.agent_id, cmd.subordinates)
+
+    def test_specops_requires_commander_parent(self):
+        f = _factory()
+        orch = f.spawn_orchestrator()
+        with self.assertRaises(ValueError):
+            f.spawn_specops(commander_id=orch.agent_id)
+
+    def test_specops_accepts_commander_order(self):
+        f = _factory()
+        cmd = f.spawn_commander()
+        so = f.spawn_specops(commander_id=cmd.agent_id)
+        order = Order(from_agent=cmd.agent_id, to_agent=so.agent_id,
+                      **_contract(role_name="specops"))
+        self.assertTrue(so.receive_order(order, sender_role=RoleEnum.COMMANDER))
+        self.assertEqual(so.status, StatusEnum.BRIEFED)
+
+    def test_specops_rejects_orchestrator_and_director(self):
+        f = _factory()
+        cmd = f.spawn_commander()
+        orch = f.spawn_orchestrator(commander_id=cmd.agent_id)
+        director = f.spawn_director(commander_id=orch.agent_id)
+        so = f.spawn_specops(commander_id=cmd.agent_id)
+        for sender in (orch, director):
+            order = Order(from_agent=sender.agent_id, to_agent=so.agent_id,
+                          **_contract(role_name="specops"))
+            self.assertFalse(so.receive_order(order, sender_role=sender.role))
+        self.assertEqual(so.status, StatusEnum.IDLE)
+
+    def test_specops_cannot_command_line(self):
+        f = _factory()
+        cmd = f.spawn_commander()
+        orch = f.spawn_orchestrator(commander_id=cmd.agent_id)
+        so = f.spawn_specops(commander_id=cmd.agent_id)
+        order = Order(from_agent=so.agent_id, to_agent=orch.agent_id,
+                      **_contract(role_name="orchestrator"))
+        self.assertFalse(orch.receive_order(order, sender_role=RoleEnum.SPECOPS))
+        with self.assertRaises(ValueError):
+            so.delegate_task(Task(description="x"), orch.agent_id)
+
+    def test_c2_routes_commander_to_specops_but_not_orchestrator_to_specops(self):
+        from rr.c2_router import C2Router
+        f = _factory()
+        cmd = f.spawn_commander()
+        orch = f.spawn_orchestrator(commander_id=cmd.agent_id)
+        cmd.add_subordinate(orch.agent_id)
+        so = f.spawn_specops(commander_id=cmd.agent_id)
+        c2 = C2Router(f)
+        self.assertFalse(c2.route_order(Order(from_agent=orch.agent_id, to_agent=so.agent_id,
+                                              **_contract(role_name="specops"))))
+        self.assertTrue(c2.route_order(Order(from_agent=cmd.agent_id, to_agent=so.agent_id,
+                                             **_contract(role_name="specops"))))
+
+
+class TestReviewFixes(unittest.TestCase):
+    def test_assignment_missing_contract_fields_rejected(self):
+        f = _factory()
+        orch = f.spawn_orchestrator()
+        director = f.spawn_director(commander_id=orch.agent_id)
+        order = Order(from_agent=orch.agent_id, to_agent=director.agent_id,
+                      order_type="assignment", content="x", goal="x")
+        self.assertFalse(director.receive_order(order, sender_role=RoleEnum.ORCHESTRATOR))
+        self.assertEqual(director.status, StatusEnum.IDLE)
+        a = order.to_assignment()
+        self.assertEqual(set(a.missing_fields()),
+                         {"scope_boundary", "done_criteria", "stop_list", "role_name"})
+
+    def test_unbound_specialist_rejects_random_advisory_sender(self):
+        f = _factory()
+        director = f.spawn_director()
+        stranger = f.spawn_director()
+        spec = f.spawn_specialist(advising=director.agent_id)
+        bad = Order(from_agent=stranger.agent_id, to_agent=spec.agent_id,
+                    order_type="advisory_brief", content="x", is_advisory=True)
+        self.assertFalse(spec.receive_order(bad, sender_role=RoleEnum.DIRECTOR))
+        good = Order(from_agent=director.agent_id, to_agent=spec.agent_id,
+                     order_type="advisory_brief", content="x", is_advisory=True)
+        self.assertTrue(spec.receive_order(good, sender_role=RoleEnum.DIRECTOR))
+
+    def test_execute_requires_brief(self):
+        f = _factory()
+        director = f.spawn_director()
+        with self.assertRaises(RuntimeError):
+            director.execute_task(Task(description="x"))
+        self.assertEqual(director.status, StatusEnum.IDLE)
+
+    def test_fire_team_specialists_are_advisors_not_subordinates(self):
+        f = _factory()
+        team = f.spawn_fire_team(mos=MOSEnum.INFANTRY, team_size=3)
+        leader, members = team[0], team[1:]
+        for m in members:
+            self.assertIn(m.agent_id, leader.advisors)
+            self.assertNotIn(m.agent_id, leader.subordinates)
+
+    def test_c2_rejects_rank_override_skip_level(self):
+        from rr.c2_router import C2Router
+        f = _factory()
+        cmd = f.spawn_commander()
+        orch = f.spawn_orchestrator(commander_id=cmd.agent_id)
+        director = f.spawn_director(commander_id=orch.agent_id)
+        c2 = C2Router(f)
+        order = Order(from_agent=cmd.agent_id, to_agent=director.agent_id, **_contract())
+        self.assertFalse(c2.route_order(order))
+
+    def test_done_sitrep_reports_full_progress(self):
+        f = _factory()
+        orch = f.spawn_orchestrator()
+        director = f.spawn_director(commander_id=orch.agent_id)
+        director.receive_order(Order(from_agent=orch.agent_id, to_agent=director.agent_id,
+                                     **_contract()), sender_role=RoleEnum.ORCHESTRATOR)
+        director.transition_status(StatusEnum.EXECUTING)
+        director.current_task = Task(description="x")
+        sitrep = director.report_sitrep(kind="done", done=["x"])
+        self.assertEqual(sitrep.progress, 1.0)
+
+    def test_planner_preserves_assigned_role(self):
+        from rr.mission_planner import MissionPlanner
+        mp = MissionPlanner.__new__(MissionPlanner)
+        tasks = mp._parse_task_plan(
+            '[{"description": "advise", "assigned_role": "specialist"}]', "m1")
+        self.assertEqual(tasks[0].metadata["assigned_role"], "specialist")
+
+    def test_swarm_briefs_before_execute_and_never_falls_back_to_orchestrator(self):
+        from rr.swarm_orchestrator import SwarmOrchestrator
+        from rr.models import Swarm
+        f = _factory()
+        orch = f.spawn_orchestrator()
+        director = f.spawn_director(commander_id=orch.agent_id, mos=MOSEnum.INFANTRY)
+        orch.add_subordinate(director.agent_id)
+        so = SwarmOrchestrator.__new__(SwarmOrchestrator)
+        so.agent_factory = f
+        swarm = Swarm(name="s", mission_id="m1", orchestrator_id=orch.agent_id,
+                      agents=[orch.agent_id, director.agent_id])
+        ok = Task(description="do it")
+        orphan = Task(description="needs cavalry", metadata={"assigned_mos": "19D"})
+        so._assign_tasks_to_agents([ok, orphan], swarm)
+        self.assertEqual(ok.assigned_to, director.agent_id)
+        self.assertIsNone(orphan.assigned_to)
+        self.assertEqual(orphan.status, StatusEnum.BLOCKED)
+        director.query_llm = lambda name, prompt: "result"
+        director._select_llm_for_role = lambda: "mock"
+        results = so._execute_task_graph([ok], swarm)
+        self.assertTrue(results[0]["success"], results)
+        self.assertEqual(director.status, StatusEnum.IDLE)
+        self.assertEqual(ok.status, StatusEnum.REPORTING)
 
 
 if __name__ == "__main__":

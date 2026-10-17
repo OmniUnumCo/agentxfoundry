@@ -142,7 +142,9 @@ class RRDatabase:
                                updated_at = CURRENT_TIMESTAMP
             WHERE id = %s
         """
-        self._execute(query, (StatusEnum.COMPLETE.value, mission_id))
+        # Persist the legacy literal "complete" so existing queries keep working
+        # (StatusEnum.COMPLETE is now an alias of REPORTING in memory).
+        self._execute(query, ("complete", mission_id))
 
     # ========== TASK OPERATIONS ==========
 
@@ -177,7 +179,7 @@ class RRDatabase:
         """Update task status and result"""
         query = """
             UPDATE tasks SET status = %s, result = %s, error = %s,
-                            completed_at = CASE WHEN %s IN ('complete', 'failed')
+                            completed_at = CASE WHEN %s IN ('complete', 'reporting', 'failed')
                                               THEN CURRENT_TIMESTAMP ELSE completed_at END
             WHERE id = %s
         """

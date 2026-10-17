@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 from loguru import logger
 from datetime import datetime
 
-from .models import Order, SitRep, CasRep
+from .models import Order, SitRep, CasRep, RoleEnum, VALID_COMMAND_TARGETS
 from .agent_factory import AgentFactory
 
 
@@ -59,8 +59,8 @@ class C2Router:
             )
             return False
 
-        # Route order
-        success = to_agent.receive_order(order)
+        # Route order (sender role drives recipient-side validation)
+        success = to_agent.receive_order(order, sender_role=from_agent.role)
 
         if success:
             self.order_log.append(order)
@@ -288,20 +288,13 @@ class C2Router:
         if not superior or not subordinate:
             return False
 
-        # Check if subordinate is in superior's direct subordinates
-        if subordinate_id in superior.subordinates:
-            return True
-
-        # Check if superior's rank can command subordinate's rank
-        if superior.can_command(subordinate.rank):
-            # Allow command even if not direct subordinate (emergency/override)
-            logger.info(
-                f"C2Router: Override command validated - "
-                f"{superior.rank.value} can command {subordinate.rank.value}"
-            )
-            return True
-
-        return False
+        # RoleEnum is authoritative: no rank-based overrides or skip-level orders.
+        if subordinate.commander_id != superior_id and subordinate_id not in superior.subordinates:
+            return False
+        if superior.role == RoleEnum.DIRECTOR:
+            # Directors task their own sub-agents (non-Specialist, non-SpecOps)
+            return subordinate.role not in (RoleEnum.SPECIALIST, RoleEnum.SPECOPS)
+        return subordinate.role in VALID_COMMAND_TARGETS.get(superior.role, set())
 
     def get_communication_stats(self) -> Dict[str, int]:
         """Get communication statistics"""

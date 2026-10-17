@@ -3,6 +3,7 @@ Data models for Rational Reserve swarm system
 
 Line authority (RoleEnum chain of command):
   Commander → Orchestrator → Director
+  Commander → SpecOps (direct; bypasses Orchestrator and Directors)
 
 Specialists are freelance/on-call advisors to Directors.
 They consult; they do not own programs or issue orders to Directors.
@@ -28,6 +29,7 @@ class RoleEnum(str, Enum):
     ORCHESTRATOR = "orchestrator"
     DIRECTOR = "director"
     SPECIALIST = "specialist"
+    SPECOPS = "specops"  # reports directly to Commander only
 
 
 # Line-authority levels (Specialist is advisory — not ranked above Director)
@@ -40,11 +42,18 @@ ROLE_LINE_LEVEL = {
 
 # Direct line-command targets (who may issue orders to whom)
 VALID_COMMAND_TARGETS: Dict[RoleEnum, Set[RoleEnum]] = {
-    RoleEnum.COMMANDER: {RoleEnum.ORCHESTRATOR},
+    RoleEnum.COMMANDER: {RoleEnum.ORCHESTRATOR, RoleEnum.SPECOPS},
     RoleEnum.ORCHESTRATOR: {RoleEnum.DIRECTOR},
     RoleEnum.DIRECTOR: set(),  # Directors assign sub-agents; may request Specialist advisors
     RoleEnum.SPECIALIST: set(),  # Specialists advise; they do not command
+    RoleEnum.SPECOPS: set(),  # SpecOps executes for Commander; commands no one
 }
+
+# Roles that may only ever be tasked by (and report to) the Commander.
+COMMANDER_ONLY_ROLES: Set[RoleEnum] = {RoleEnum.SPECOPS}
+
+# Assignment contract fields every line assignment must carry.
+REQUIRED_ASSIGNMENT_FIELDS = ("goal", "scope_boundary", "done_criteria", "stop_list", "role_name")
 
 
 class RankEnum(str, Enum):
@@ -148,6 +157,13 @@ class Assignment(BaseModel):
     is_advisory: bool = False  # True when briefing a Specialist advisor
     created_at: datetime = Field(default_factory=datetime.utcnow)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    def missing_fields(self) -> List[str]:
+        """Contract fields that are empty (goal, scope, done, stop list, role)."""
+        return [f for f in REQUIRED_ASSIGNMENT_FIELDS if not getattr(self, f)]
+
+    def is_complete(self) -> bool:
+        return not self.missing_fields()
 
 
 class Task(BaseModel):

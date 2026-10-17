@@ -14,7 +14,7 @@ import uuid
 import warnings
 
 from .rr_agent import RRAgent
-from .models import RoleEnum, RankEnum, MOSEnum, StatusEnum, AgentRecord
+from .models import RoleEnum, RankEnum, MOSEnum, StatusEnum
 
 
 class AgentFactory:
@@ -93,6 +93,28 @@ class AgentFactory:
             mos=mos or MOSEnum.COMBAT_ENGINEER,
             rank=rank or RankEnum.COLONEL,
         )
+
+    def spawn_specops(
+        self,
+        commander_id: str,
+        name: Optional[str] = None,
+        mos: Optional[MOSEnum] = None,
+    ) -> RRAgent:
+        """Spawn a SpecOps agent reporting DIRECTLY to the Commander.
+
+        SpecOps bypasses the Orchestrator and Directors entirely.
+        """
+        commander = self.get_agent(commander_id)
+        if commander is None or commander.role != RoleEnum.COMMANDER:
+            raise ValueError("SpecOps must report directly to a Commander")
+        agent = self.spawn_agent(
+            role=RoleEnum.SPECOPS,
+            name=name or "SpecOps",
+            commander_id=commander_id,
+            mos=mos or MOSEnum.SF_ENGINEER,
+        )
+        commander.add_subordinate(agent.agent_id)
+        return agent
 
     def spawn_specialist(
         self,
@@ -255,9 +277,8 @@ class AgentFactory:
                 advising=leader.agent_id,
                 name=f"{mos.name.title()} Specialist {i+1}",
             )
+            # Specialists are advisors only, never line subordinates
             leader.attach_advisor(member.agent_id)
-            # Also track as subordinate for legacy fire-team ops
-            leader.add_subordinate(member.agent_id)
             agents.append(member)
         return agents
 

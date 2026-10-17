@@ -177,12 +177,10 @@ class SwarmOrchestrator:
         # Activate Orchestrator (and optional Commander)
         orch_id = swarm.orchestrator_id or swarm.general_id
         orchestrator = self.agent_factory.get_agent(orch_id) if orch_id else None
+        # Activation is the Orchestrator's brief: IDLE → BRIEFED via the
+        # declared lifecycle (never written straight to EXECUTING).
         if orchestrator:
-            orchestrator.status = StatusEnum.EXECUTING
-        if swarm.commander_id:
-            commander = self.agent_factory.get_agent(swarm.commander_id)
-            if commander:
-                commander.status = StatusEnum.EXECUTING
+            orchestrator.transition_status(StatusEnum.BRIEFED)
 
         logger.info(f"Swarm {swarm.name} activated for mission: {mission.objective}")
         return True
@@ -625,11 +623,46 @@ class SwarmOrchestrator:
                     f"[role={suitable_agent.role.value}]"
                 )
             else:
-                task.assigned_to = orch_id
+                # Never fall back to the Orchestrator (it plans, it does not
+                # execute) — leave the task unassigned and blocked.
+                task.assigned_to = None
+                task.status = StatusEnum.BLOCKED
+                task.error = "No suitable Director or Specialist available"
                 logger.warning(
                     f"No suitable Director for task '{task.description[:50]}...', "
-                    f"assigning to Orchestrator"
+                    f"leaving task blocked/unassigned"
                 )
+
+    def _brief_agent_for_task(self, agent: RRAgent, task: Task, swarm: Swarm) -> bool:
+        """Send the full assignment contract so the agent moves IDLE → BRIEFED."""
+        if StatusEnum(agent.status.value) == StatusEnum.BRIEFED:
+            return True
+        orch_id = swarm.orchestrator_id or swarm.general_id
+        orchestrator = self.agent_factory.get_agent(orch_id) if orch_id else None
+        if orchestrator is None:
+            return False
+        is_advisory = agent.role == RoleEnum.SPECIALIST
+        if (
+            not is_advisory
+            and agent.role == RoleEnum.DIRECTOR
+            and agent.commander_id == orchestrator.agent_id
+        ):
+            orchestrator.add_subordinate(agent.agent_id)
+        criteria = task.metadata.get("success_criteria")
+        order = orchestrator.delegate_task(
+            task,
+            agent.agent_id,
+            goal=task.description,
+            scope_boundary=f"Mission {swarm.mission_id}: this task only",
+            done_criteria=[criteria] if isinstance(criteria, str) and criteria else
+                          list(criteria) if criteria else [f"Task {task.id} result reported"],
+            stop_list=["No work outside this task", "No external side effects"],
+            role_name=agent.role.value,
+            is_advisory=is_advisory,
+        ) if (is_advisory or agent.agent_id in orchestrator.subordinates) else None
+        if order is None:
+            return False
+        return agent.receive_order(order, sender_role=orchestrator.role)
 
     def _execute_task_graph(self, tasks: List[Task], swarm: Swarm) -> List[Dict[str, Any]]:
         """
@@ -685,6 +718,10 @@ class SwarmOrchestrator:
                     continue
 
                 try:
+                    if not self._brief_agent_for_task(agent, task, swarm):
+                        raise RuntimeError(
+                            f"{agent.name} could not be briefed for task {task.id}"
+                        )
                     logger.info(
                         f"Executing task: '{task.description[:50]}...' "
                         f"via {agent.name}"

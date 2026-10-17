@@ -4,10 +4,15 @@
 
 ```
 Commander (optional)
-    └── Orchestrator
-            └── Director(s)     ← own workstreams / operationalize
-                    └── sub-agents (as needed)
+    ├── Orchestrator
+    │       └── Director(s)     ← own workstreams / operationalize
+    │               └── sub-agents (as needed)
+    └── SpecOps                 ← reports DIRECTLY to Commander only
 ```
+
+**SpecOps** bypasses the Orchestrator and Directors entirely: it accepts orders
+only from its Commander (`spawn_specops` requires a Commander parent), reports
+only to the Commander, and never issues line orders or delegates.
 
 **Specialists** are **freelance advisors** to Directors (and may be engaged by the
 Orchestrator to advise a named Director). They **consult**; they do **not** own
@@ -25,7 +30,8 @@ Director     ◄──advises── Specialist
 | `COMMANDER` | Optional top of line; commands Orchestrator |
 | `ORCHESTRATOR` | Mission planning & delegation; assigns Directors |
 | `DIRECTOR` | Owns a workstream; may attach Specialist advisors; assigns sub-tasks |
-| `SPECIALIST` | On-call expert advisor; accepts advisory briefs only |
+| `SPECIALIST` | On-call expert advisor; accepts advisory briefs only from its Orchestrator or the Director it advises |
+| `SPECOPS` | Commander-only direct report; outside the Orchestrator/Director line |
 
 ### Legacy mapping (Rank / General → RoleEnum)
 
@@ -43,6 +49,8 @@ and factory spawn paths use **`RoleEnum`**.
 
 - Orchestrator → **1 Director** per workstream (+ **0–2 Specialist** advisors)
 - No flat General→everyone fan-out
+- Orchestrator never executes workstream tasks; unmatched tasks stay `BLOCKED`/unassigned
+- `C2Router` validates by `RoleEnum` (`VALID_COMMAND_TARGETS` + direct commander); no rank-based overrides
 
 ## Lifecycle
 
@@ -58,6 +66,12 @@ Idle → Briefed → Executing → Reporting → Idle
 | `REPORTING` | SitRep done/blocked/next (alias: `COMPLETE` then back to Idle) |
 | `FAILED` / `BLOCKED` | Terminal / waiting |
 
+Enforcement: `execute_task` refuses to run unless the agent is `BRIEFED`
+(or resuming from `BLOCKED`); the swarm briefs each agent with a full
+assignment before execution, and swarm activation moves the Orchestrator
+`IDLE → BRIEFED` rather than writing `EXECUTING` directly. Persistence keeps the
+legacy `complete` literal for finished missions.
+
 ## Assignment contract
 
 On `Order` / `Assignment`:
@@ -69,9 +83,12 @@ On `Order` / `Assignment`:
 - `role_name`
 - `is_advisory` (true for Specialist briefs)
 
+A line `assignment` missing any of the five contract fields is rejected
+(`Assignment.missing_fields()`).
+
 ## Factory spawn helpers
 
-- `spawn_commander`, `spawn_orchestrator`, `spawn_director`, `spawn_specialist`
+- `spawn_commander`, `spawn_orchestrator`, `spawn_director`, `spawn_specialist`, `spawn_specops(commander_id)`
 - `spawn_workstream(orchestrator_id, …)` → 1 Director + advisors
 - `spawn_general` **deprecated** → wraps `spawn_orchestrator`
 

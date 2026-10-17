@@ -98,9 +98,10 @@ The Rational Reserve is an **autonomous military-structured swarm agent system**
 
 ```
 Commander (optional)
-    └── Orchestrator
-            └── Director(s)          ← own workstreams / operationalize
-                    └── sub-agents (as needed)
+    ├── Orchestrator
+    │       └── Director(s)          ← own workstreams / operationalize
+    │               └── sub-agents (as needed)
+    └── SpecOps                      ← reports DIRECTLY to Commander only
 
 Specialists ──advise──► Directors     (freelance / on-call; consult only)
 Orchestrator may engage a Specialist to advise a named Director.
@@ -113,6 +114,7 @@ Specialists do **not** own programs and do **not** issue orders to Directors.
 | `ORCHESTRATOR` | Mission planning & delegation; assigns Directors |
 | `DIRECTOR` | Owns a workstream; may attach Specialist advisors |
 | `SPECIALIST` | Freelance advisor; accepts advisory briefs only |
+| `SPECOPS` | Commander-only direct report; bypasses Orchestrator and Directors |
 
 **Caps:** Orchestrator → max 1 Director + 0–2 Specialist advisors per workstream. No flat General→everyone fan-out.
 
@@ -132,7 +134,7 @@ Idle → Briefed → Executing → Reporting → Idle
 
 ### Assignment contract
 
-Orders/Assignments carry: `goal`, `scope_boundary`, `done_criteria`, `stop_list`, `role_name` (+ `is_advisory` for Specialist briefs).
+Orders/Assignments carry: `goal`, `scope_boundary`, `done_criteria`, `stop_list`, `role_name` (+ `is_advisory` for Specialist briefs). Line assignments missing any of the five fields are rejected, and agents must be `BRIEFED` before `execute_task`.
 
 ### Legacy mapping (Rank / General → RoleEnum)
 
