@@ -7,7 +7,7 @@ from loguru import logger
 from datetime import datetime
 
 from .models import (
-    Mission, Swarm, Unit, StatusEnum, RankEnum, MOSEnum,
+    Mission, Swarm, Unit, StatusEnum, MOSEnum, RoleEnum,
     AAR, Task, PriorityEnum
 )
 from .agent_factory import AgentFactory
@@ -47,10 +47,10 @@ class SwarmOrchestrator:
         # Initialize mission planner if autonomous mode enabled
         self.mission_planner = None
         if enable_autonomous_planning:
-            # Get LLM client for strategic planning (use anthropic for General-level planning)
+            # Get LLM client for strategic planning (Orchestrator-level)
             if "anthropic" in agent_factory.llm_clients:
                 self.mission_planner = MissionPlanner(agent_factory.llm_clients["anthropic"])
-                logger.info("SwarmOrchestrator initialized with AUTONOMOUS PLANNING enabled")
+                logger.info("SwarmOrchestrator initialized with AUTONOMOUS PLANNING (Orchestrator) enabled")
             else:
                 logger.warning("Anthropic LLM not available, autonomous planning disabled")
                 self.enable_autonomous_planning = False
@@ -62,61 +62,89 @@ class SwarmOrchestrator:
         mission: Mission,
         swarm_size: str = "fire_team",
         primary_mos: MOSEnum = MOSEnum.INFANTRY,
+        include_commander: bool = False,
+        specialists_per_workstream: int = 1,
     ) -> Swarm:
         """
-        Create a new swarm for a mission
+        Create a swarm with Jason hierarchy:
+
+          [Commander (optional)] → Orchestrator → Director(s)
+          Specialists attach as freelance advisors to Directors.
+
+        Caps: max 1 Director + 1–2 Specialist advisors per workstream.
+        No flat General→everyone fan-out.
 
         Args:
             mission: Mission object with objectives
-            swarm_size: Size category (fire_team, squad, platoon, company)
-            primary_mos: Primary MOS for the swarm
+            swarm_size: workstream count proxy (single|fire_team|squad|platoon)
+            primary_mos: Primary MOS metadata for Directors/Specialists
+            include_commander: If True, spawn optional Commander above Orchestrator
+            specialists_per_workstream: 0–2 Specialist advisors per Director
 
         Returns:
             Created Swarm instance
         """
-        logger.info(f"Creating swarm for mission: {mission.objective}")
+        logger.info(f"Creating hierarchical swarm for mission: {mission.objective}")
 
-        # Create swarm record
+        if specialists_per_workstream < 0 or specialists_per_workstream > 2:
+            raise ValueError("specialists_per_workstream must be 0–2")
+
         swarm = Swarm(
             name=f"Swarm-{mission.id[:8]}",
             mission_id=mission.id,
-            status=StatusEnum.STANDBY,
+            status=StatusEnum.IDLE,
         )
 
-        # Spawn General to command the swarm
-        general = self.agent_factory.spawn_general(
-            name=f"GEN-{swarm.id[:8]}"
+        commander = None
+        if include_commander:
+            commander = self.agent_factory.spawn_commander(
+                name=f"CMD-{swarm.id[:8]}"
+            )
+            commander.swarm_id = swarm.id
+            commander.current_mission = mission.id
+            swarm.commander_id = commander.agent_id
+            swarm.agents.append(commander.agent_id)
+
+        orchestrator = self.agent_factory.spawn_orchestrator(
+            name=f"ORCH-{swarm.id[:8]}",
+            commander_id=commander.agent_id if commander else None,
         )
-        general.swarm_id = swarm.id
-        general.current_mission = mission.id
-        swarm.general_id = general.agent_id
-        swarm.agents.append(general.agent_id)
+        orchestrator.swarm_id = swarm.id
+        orchestrator.current_mission = mission.id
+        swarm.orchestrator_id = orchestrator.agent_id
+        swarm.general_id = orchestrator.agent_id  # legacy alias
+        swarm.agents.append(orchestrator.agent_id)
+        if commander:
+            commander.add_subordinate(orchestrator.agent_id)
 
-        # Build swarm based on size
-        agents = self._build_swarm_units(
-            swarm_size=swarm_size,
-            primary_mos=primary_mos,
-            commander_id=general.agent_id,
-            swarm_id=swarm.id,
-        )
+        workstream_count = {
+            "single": 1,
+            "fire_team": 1,
+            "squad": 2,
+            "platoon": 3,
+            "company": 4,
+        }.get(swarm_size, 1)
 
-        # Add all agents to swarm
-        for agent in agents:
-            agent.swarm_id = swarm.id
-            agent.current_mission = mission.id
-            swarm.agents.append(agent.agent_id)
-            general.add_subordinate(agents[0].agent_id) if agents else None
+        for i in range(workstream_count):
+            ws = self.agent_factory.spawn_workstream(
+                orchestrator_id=orchestrator.agent_id,
+                primary_mos=primary_mos,
+                specialist_count=specialists_per_workstream,
+                director_name=f"DIR-{swarm.id[:8]}-{i+1}",
+            )
+            for agent in ws["agents"]:
+                agent.swarm_id = swarm.id
+                agent.current_mission = mission.id
+                swarm.agents.append(agent.agent_id)
 
-        # Store swarm and mission
         self.active_swarms[swarm.id] = swarm
         self.missions[mission.id] = mission
         mission.assigned_swarm = swarm.id
 
         logger.info(
             f"Swarm created: {swarm.name} with {len(swarm.agents)} agents "
-            f"(General: {general.name})"
+            f"(Orchestrator: {orchestrator.name}, workstreams={workstream_count})"
         )
-
         return swarm
 
     def activate_swarm(self, swarm_id: str) -> bool:
@@ -140,16 +168,19 @@ class SwarmOrchestrator:
             logger.error(f"Mission {swarm.mission_id} not found")
             return False
 
-        # Update status
-        swarm.status = StatusEnum.ACTIVE
+        # Update status (lifecycle: IDLE → for swarm we use EXECUTING when active)
+        swarm.status = StatusEnum.EXECUTING
         swarm.activated_at = datetime.utcnow()
-        mission.status = StatusEnum.ACTIVE
+        mission.status = StatusEnum.EXECUTING
         mission.started_at = datetime.utcnow()
 
-        # Activate General
-        general = self.agent_factory.get_agent(swarm.general_id)
-        if general:
-            general.status = StatusEnum.ACTIVE
+        # Activate Orchestrator (and optional Commander)
+        orch_id = swarm.orchestrator_id or swarm.general_id
+        orchestrator = self.agent_factory.get_agent(orch_id) if orch_id else None
+        # Activation is the Orchestrator's brief: IDLE → BRIEFED via the
+        # declared lifecycle (never written straight to EXECUTING).
+        if orchestrator:
+            orchestrator.transition_status(StatusEnum.BRIEFED)
 
         logger.info(f"Swarm {swarm.name} activated for mission: {mission.objective}")
         return True
@@ -178,10 +209,11 @@ class SwarmOrchestrator:
 
         logger.info(f"Executing mission via swarm {swarm.name}")
 
-        # Get General
-        general = self.agent_factory.get_agent(swarm.general_id)
+        # Get Orchestrator (legacy general_id still supported)
+        orch_id = swarm.orchestrator_id or swarm.general_id
+        general = self.agent_factory.get_agent(orch_id)  # variable name kept for minimal churn
         if not general:
-            raise ValueError(f"General not found for swarm {swarm_id}")
+            raise ValueError(f"Orchestrator not found for swarm {swarm_id}")
 
         try:
             if self.enable_autonomous_planning and self.mission_planner:
@@ -210,10 +242,10 @@ class SwarmOrchestrator:
                 all_successful = all(r.get("success", False) for r in results)
 
                 if all_successful:
-                    mission.status = StatusEnum.COMPLETE
+                    mission.status = StatusEnum.REPORTING
                     mission.completed_at = datetime.utcnow()
                     mission.result = {"tasks_executed": len(results), "results": results}
-                    swarm.status = StatusEnum.COMPLETE
+                    swarm.status = StatusEnum.REPORTING
 
                     logger.info(f"Mission completed successfully: {len(results)} tasks executed")
 
@@ -241,7 +273,7 @@ class SwarmOrchestrator:
                     }
 
             else:
-                # PHASE 1: LEGACY MODE - General executes directly
+                # PHASE 1: LEGACY MODE - Orchestrator executes directly
                 logger.info("Using legacy direct execution mode")
 
                 task = Task(
@@ -252,10 +284,10 @@ class SwarmOrchestrator:
 
                 result = general.execute_task(task)
 
-                mission.status = StatusEnum.COMPLETE
+                mission.status = StatusEnum.REPORTING
                 mission.completed_at = datetime.utcnow()
                 mission.result = result
-                swarm.status = StatusEnum.COMPLETE
+                swarm.status = StatusEnum.REPORTING
 
                 logger.info(f"Mission completed successfully: {mission.objective}")
 
@@ -303,8 +335,9 @@ class SwarmOrchestrator:
                 agents_status.append({
                     "id": agent.agent_id,
                     "name": agent.name,
-                    "rank": agent.rank.value,
-                    "mos": agent.mos.value,
+                    "role": agent.role.value,
+                    "rank": agent.rank.value if agent.rank else None,
+                    "mos": agent.mos.value if agent.mos else None,
                     "status": agent.status.value,
                 })
 
@@ -349,7 +382,7 @@ class SwarmOrchestrator:
             self.agent_factory.deactivate_agent(agent_id)
 
         # Mark swarm as disbanded
-        swarm.status = StatusEnum.COMPLETE
+        swarm.status = StatusEnum.IDLE
         swarm.disbanded_at = datetime.utcnow()
 
         # Remove from active swarms
@@ -378,39 +411,30 @@ class SwarmOrchestrator:
         Returns:
             List of spawned agents
         """
-        if swarm_size == "fire_team":
-            agents = self.agent_factory.spawn_fire_team(
+        # Legacy formation helpers — prefer create_swarm workstream path.
+        # Directors own workstreams; Specialists are advisors (not line CoC).
+        if swarm_size == "single":
+            director = self.agent_factory.spawn_director(
                 mos=primary_mos,
-                team_size=4,
                 commander_id=commander_id,
             )
+            return [director]
         elif swarm_size == "squad":
-            agents = self.agent_factory.spawn_squad(
+            return self.agent_factory.spawn_squad(
                 primary_mos=primary_mos,
                 commander_id=commander_id,
             )
         elif swarm_size == "platoon":
-            agents = self.agent_factory.spawn_platoon(
+            return self.agent_factory.spawn_platoon(
                 primary_mos=primary_mos,
                 commander_id=commander_id,
             )
-        elif swarm_size == "single":
-            # Single specialist agent
-            agents = [
-                self.agent_factory.spawn_specialist(
-                    mos=primary_mos,
-                    commander_id=commander_id,
-                )
-            ]
         else:
-            # Default to fire team
-            agents = self.agent_factory.spawn_fire_team(
+            return self.agent_factory.spawn_fire_team(
                 mos=primary_mos,
                 team_size=4,
                 commander_id=commander_id,
             )
-
-        return agents
 
     def _generate_aar(self, swarm: Swarm, mission: Optional[Mission]) -> AAR:
         """
@@ -423,7 +447,7 @@ class SwarmOrchestrator:
         Returns:
             AAR report
         """
-        success = mission.status == StatusEnum.COMPLETE if mission else False
+        success = bool(mission and mission.completed_at and mission.status != StatusEnum.FAILED)
 
         aar = AAR(
             mission_id=mission.id if mission else "unknown",
@@ -432,8 +456,8 @@ class SwarmOrchestrator:
             objectives_met=[mission.objective] if success else [],
             objectives_missed=[] if success else [mission.objective] if mission else [],
             lessons_learned=[
-                "Phase 1 implementation: General-only execution",
-                "Future: Implement task decomposition and delegation",
+                "Phase 1 implementation: Orchestrator-led execution",
+                "Future: Expand Director delegation across workstreams",
             ],
             agent_performance={
                 agent_id: {"tasks_completed": 1}
@@ -511,7 +535,7 @@ class SwarmOrchestrator:
             "active_swarms": len(self.active_swarms),
             "total_missions": len(self.missions),
             "completed_missions": len(
-                [m for m in self.missions.values() if m.status == StatusEnum.COMPLETE]
+                [m for m in self.missions.values() if m.status in (StatusEnum.REPORTING, StatusEnum.IDLE) and m.completed_at]
             ),
             "failed_missions": len(
                 [m for m in self.missions.values() if m.status == StatusEnum.FAILED]
@@ -533,6 +557,7 @@ class SwarmOrchestrator:
             Dict with agents organized by rank and MOS
         """
         composition = {
+            "by_role": {},
             "by_rank": {},
             "by_mos": {},
         }
@@ -540,17 +565,12 @@ class SwarmOrchestrator:
         for agent_id in swarm.agents:
             agent = self.agent_factory.get_agent(agent_id)
             if agent:
-                # Group by rank
-                rank_key = agent.rank.value
-                if rank_key not in composition["by_rank"]:
-                    composition["by_rank"][rank_key] = []
-                composition["by_rank"][rank_key].append(agent_id)
-
-                # Group by MOS
-                mos_key = agent.mos.value
-                if mos_key not in composition["by_mos"]:
-                    composition["by_mos"][mos_key] = []
-                composition["by_mos"][mos_key].append(agent_id)
+                role_key = agent.role.value
+                composition["by_role"].setdefault(role_key, []).append(agent_id)
+                if agent.rank:
+                    composition["by_rank"].setdefault(agent.rank.value, []).append(agent_id)
+                if agent.mos:
+                    composition["by_mos"].setdefault(agent.mos.value, []).append(agent_id)
 
         return composition
 
@@ -562,44 +582,87 @@ class SwarmOrchestrator:
             tasks: List of tasks to assign
             swarm: Swarm instance with available agents
         """
+        orch_id = swarm.orchestrator_id or swarm.general_id
         for task in tasks:
-            # Get assignment criteria from task metadata
+            required_role = (task.metadata.get("assigned_role") or "").lower()
             required_mos = task.metadata.get("assigned_mos")
             required_rank = task.metadata.get("assigned_rank")
 
-            # Find suitable agent
             suitable_agent = None
-
+            # Prefer Directors for owned work; Specialists only if role=specialist (advisory)
+            candidates = []
             for agent_id in swarm.agents:
                 agent = self.agent_factory.get_agent(agent_id)
-                if not agent or agent.agent_id == swarm.general_id:
-                    continue  # Skip General, they plan not execute
+                if not agent:
+                    continue
+                if agent.role in (RoleEnum.COMMANDER, RoleEnum.ORCHESTRATOR):
+                    continue  # plan/delegate, do not execute workstream tasks
+                if agent.agent_id == orch_id or agent.agent_id == swarm.commander_id:
+                    continue
+                candidates.append(agent)
 
-                # Check if agent matches criteria
-                mos_match = (not required_mos) or (agent.mos.value == required_mos)
-                rank_match = (not required_rank) or (agent.rank.value == required_rank)
+            # Role preference
+            if required_role == "specialist":
+                pool = [a for a in candidates if a.role == RoleEnum.SPECIALIST]
+            else:
+                # Default: Directors own execution
+                pool = [a for a in candidates if a.role == RoleEnum.DIRECTOR] or candidates
 
-                # Check if agent is available
-                agent_available = agent.status == StatusEnum.STANDBY or agent.status == StatusEnum.ACTIVE
-
+            for agent in pool:
+                mos_match = (not required_mos) or (agent.mos and agent.mos.value == required_mos)
+                rank_match = (not required_rank) or (agent.rank and agent.rank.value == required_rank)
+                agent_available = agent.status in (StatusEnum.IDLE, StatusEnum.BRIEFED)
                 if mos_match and rank_match and agent_available:
                     suitable_agent = agent
                     break
 
-            # Assign task
             if suitable_agent:
                 task.assigned_to = suitable_agent.agent_id
                 logger.info(
                     f"Task '{task.description[:50]}...' assigned to {suitable_agent.name} "
-                    f"[{suitable_agent.rank.value}] [{suitable_agent.mos.value}]"
+                    f"[role={suitable_agent.role.value}]"
                 )
             else:
-                # Fallback: assign to General if no suitable agent found
-                task.assigned_to = swarm.general_id
+                # Never fall back to the Orchestrator (it plans, it does not
+                # execute) — leave the task unassigned and blocked.
+                task.assigned_to = None
+                task.status = StatusEnum.BLOCKED
+                task.error = "No suitable Director or Specialist available"
                 logger.warning(
-                    f"No suitable agent found for task '{task.description[:50]}...', "
-                    f"assigning to General"
+                    f"No suitable Director for task '{task.description[:50]}...', "
+                    f"leaving task blocked/unassigned"
                 )
+
+    def _brief_agent_for_task(self, agent: RRAgent, task: Task, swarm: Swarm) -> bool:
+        """Send the full assignment contract so the agent moves IDLE → BRIEFED."""
+        if StatusEnum(agent.status.value) == StatusEnum.BRIEFED:
+            return True
+        orch_id = swarm.orchestrator_id or swarm.general_id
+        orchestrator = self.agent_factory.get_agent(orch_id) if orch_id else None
+        if orchestrator is None:
+            return False
+        is_advisory = agent.role == RoleEnum.SPECIALIST
+        if (
+            not is_advisory
+            and agent.role == RoleEnum.DIRECTOR
+            and agent.commander_id == orchestrator.agent_id
+        ):
+            orchestrator.add_subordinate(agent.agent_id)
+        criteria = task.metadata.get("success_criteria")
+        order = orchestrator.delegate_task(
+            task,
+            agent.agent_id,
+            goal=task.description,
+            scope_boundary=f"Mission {swarm.mission_id}: this task only",
+            done_criteria=[criteria] if isinstance(criteria, str) and criteria else
+                          list(criteria) if criteria else [f"Task {task.id} result reported"],
+            stop_list=["No work outside this task", "No external side effects"],
+            role_name=agent.role.value,
+            is_advisory=is_advisory,
+        ) if (is_advisory or agent.agent_id in orchestrator.subordinates) else None
+        if order is None:
+            return False
+        return agent.receive_order(order, sender_role=orchestrator.role)
 
     def _execute_task_graph(self, tasks: List[Task], swarm: Swarm) -> List[Dict[str, Any]]:
         """
@@ -655,6 +718,10 @@ class SwarmOrchestrator:
                     continue
 
                 try:
+                    if not self._brief_agent_for_task(agent, task, swarm):
+                        raise RuntimeError(
+                            f"{agent.name} could not be briefed for task {task.id}"
+                        )
                     logger.info(
                         f"Executing task: '{task.description[:50]}...' "
                         f"via {agent.name}"

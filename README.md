@@ -51,10 +51,10 @@ The Rational Reserve is an **autonomous military-structured swarm agent system**
 
 ### Key Features
 
-- **12 Military Ranks**: Private → General hierarchy
-- **16 MOS Specialties**: Intelligence, Operations, Support, Special Ops
-- **Autonomous Planning**: Generals decompose missions and delegate to specialists
-- **General Cognitive Framework**: Recursive, Reactive, Predictive thinking (hardcoded)
+- **RoleEnum hierarchy**: Commander → Orchestrator → Director (+ Specialist advisors)
+- **12 Ranks / 16 MOS**: Optional specialty metadata (not chain-of-command)
+- **Autonomous Planning**: Orchestrators decompose missions and assign Directors
+- **Strategic Mind**: Recursive, Reactive, Predictive thinking (Commander/Orchestrator)
 - **Dependency Management**: Tasks execute in correct order
 - **Adaptive Execution**: Pivots when conditions change
 - **Predictive Foresight**: Plans three moves ahead
@@ -62,10 +62,10 @@ The Rational Reserve is an **autonomous military-structured swarm agent system**
 ### How It Works
 
 1. **You**: Provide high-level objective
-2. **General**: Analyzes using cognitive framework (circular, reactive, predictive)
+2. **Orchestrator** (optional Commander above): Plans via strategic mind
 3. **Mission Planner**: Decomposes into task graph
-4. **Swarm**: Specialists execute tasks by MOS
-5. **Result**: Mission completed autonomously
+4. **Directors**: Own workstreams; may pull Specialist advisors
+5. **Result**: Mission completed; SitRep done/blocked/next
 
 ---
 
@@ -94,22 +94,62 @@ The Rational Reserve is an **autonomous military-structured swarm agent system**
 
 ## Architecture
 
+### Line authority (Jason hierarchy)
+
 ```
-User Objective
-     ↓
-General (Strategic Analysis)
-  ├─ Recursive Thinking: Iterative refinement
-  ├─ Reactive Complex: Instant adaptation
-  └─ Predictive Engine: Foresight (T+1, T+2, T+3)
-     ↓
-Mission Planner (Autonomous Decomposition)
-     ↓
-Task Graph (Dependencies + MOS Assignment)
-     ↓
-Swarm Execution (Specialists by MOS)
-     ↓
-Results (Aggregated + Adaptive)
+Commander (optional)
+    ├── Orchestrator
+    │       └── Director(s)          ← own workstreams / operationalize
+    │               └── sub-agents (as needed)
+    └── SpecOps                      ← reports DIRECTLY to Commander only
+
+Specialists ──advise──► Directors     (freelance / on-call; consult only)
+Orchestrator may engage a Specialist to advise a named Director.
+Specialists do **not** own programs and do **not** issue orders to Directors.
 ```
+
+| RoleEnum | Authority |
+|----------|-----------|
+| `COMMANDER` | Optional top of line; commands Orchestrator |
+| `ORCHESTRATOR` | Mission planning & delegation; assigns Directors |
+| `DIRECTOR` | Owns a workstream; may attach Specialist advisors |
+| `SPECIALIST` | Freelance advisor; accepts advisory briefs only |
+| `SPECOPS` | Commander-only direct report; bypasses Orchestrator and Directors |
+
+**Caps:** Orchestrator → max 1 Director + 0–2 Specialist advisors per workstream. No flat General→everyone fan-out.
+
+### Lifecycle
+
+```
+Idle → Briefed → Executing → Reporting → Idle
+```
+
+| Status | Meaning |
+|--------|---------|
+| `IDLE` | Available (legacy: `STANDBY`) |
+| `BRIEFED` | Assignment received & acknowledged |
+| `EXECUTING` | Doing the work (legacy: `ACTIVE` / `ENGAGED`) |
+| `REPORTING` | SitRep done/blocked/next (legacy: `COMPLETE` → then Idle) |
+| `FAILED` / `BLOCKED` | Terminal / waiting |
+
+### Assignment contract
+
+Orders/Assignments carry: `goal`, `scope_boundary`, `done_criteria`, `stop_list`, `role_name` (+ `is_advisory` for Specialist briefs). Line assignments missing any of the five fields are rejected, and agents must be `BRIEFED` before `execute_task`.
+
+### Legacy mapping (Rank / General → RoleEnum)
+
+| Old | New |
+|-----|-----|
+| General (`GEN`) | `ORCHESTRATOR` (or `COMMANDER` if top-level) |
+| COL / MAJ / CPT | `DIRECTOR` |
+| SPC specialty experts | `SPECIALIST` (advisor) |
+| LT / NCO / enlisted | Operational support under a Director |
+
+`RankEnum` / `MOSEnum` remain optional specialty metadata. Chain-of-command uses **`RoleEnum`**.
+
+`spawn_general()` is **deprecated** → wraps `spawn_orchestrator()`.
+
+See `ARCHITECTURE.md` for the short reference doc.
 
 ---
 
@@ -231,10 +271,11 @@ The General's mind is hardcoded with three integrated frameworks:
 ## Testing
 
 ```bash
-# Run Phase 1 tests
-python test_rr_phase1.py
+# Hierarchy + lifecycle unit tests (no live LLM)
+python -m unittest tests.test_hierarchy_lifecycle -v
 
-# Tests autonomous planning, delegation, execution
+# Legacy Phase 1 smoke (may call LLMs)
+python test_rr_phase1.py
 ```
 
 ---
